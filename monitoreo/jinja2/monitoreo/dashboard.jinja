@@ -1,0 +1,225 @@
+{% extends "monitoreo/base.jinja" %}
+
+{% block title %}Panel principal · PaiPayTech{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
+    <div class="relative overflow-hidden rounded-[2rem] bg-brand-brown px-6 py-9 text-white brand-shadow sm:px-9 lg:px-12">
+        <div class="absolute -right-20 -top-28 h-72 w-72 rounded-full bg-brand-green/25 blur-3xl"></div>
+        <div class="absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-brand-lime/20 blur-3xl"></div>
+        <div class="relative z-10 flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+                <div class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-white/80">
+                    <span class="h-2 w-2 rounded-full bg-brand-lime"></span>
+                    Sistema operativo
+                </div>
+                <h1 class="mt-5 text-3xl font-black tracking-tight sm:text-4xl">
+                    Hola, {{ user.first_name or user.username }}.
+                </h1>
+                <p class="mt-3 max-w-2xl text-base leading-7 text-white/70 sm:text-lg">
+                    Consulta el estado de tus piscinas y registra nuevas mediciones desde el panel de PaiPayTech.
+                </p>
+            </div>
+            <div class="flex items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-green text-brand-brown">
+                    <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M12 2v20M5 9c1.8-2.8 4.1-4.2 7-4.2S17.2 6.2 19 9c-1.8 2.8-4.1 4.2-7 4.2S6.8 11.8 5 9Z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-[0.18em] text-white/55">Última revisión</p>
+                    <p class="mt-1 text-sm font-bold">{{ now().strftime('%d/%m/%Y · %H:%M') }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <article class="rounded-3xl border border-stone-200 bg-white p-5 brand-shadow">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-sm font-semibold text-stone-500">Piscinas activas</p>
+                    <p class="mt-2 text-3xl font-black text-brand-brown">{{ total_piscinas }}</p>
+                </div>
+                <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-lime-100 text-brand-brown">
+                    <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 9c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/></svg>
+                </span>
+            </div>
+            <p class="mt-4 text-xs text-stone-400">Incluye módulos activos y próximos</p>
+        </article>
+
+        <article class="rounded-3xl border border-stone-200 bg-white p-5 brand-shadow">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-sm font-semibold text-stone-500">Registros totales</p>
+                    <p class="mt-2 text-3xl font-black text-brand-brown">{{ total_registros }}</p>
+                </div>
+                <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-green/15 text-brand-brown">
+                    <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12a2 2 0 0 1 2 2v16H4V5a2 2 0 0 1 2-2Z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>
+                </span>
+            </div>
+            <p class="mt-4 text-xs text-stone-400">Mediciones ambientales almacenadas</p>
+        </article>
+
+        <article class="rounded-3xl border border-stone-200 bg-white p-5 brand-shadow">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-sm font-semibold text-stone-500">pH promedio</p>
+                    <p class="mt-2 text-3xl font-black text-brand-brown">
+                        {% if promedio_ph is not none %}{{ promedio_ph|round(2) }}{% else %}—{% endif %}
+                    </p>
+                </div>
+                <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-100 text-brand-brown">
+                    <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2s6 7 6 12a6 6 0 0 1-12 0c0-5 6-12 6-12Z"/></svg>
+                </span>
+            </div>
+            <p class="mt-4 text-xs text-stone-400">Calculado con todos los registros</p>
+        </article>
+
+        <article class="rounded-3xl border border-brand-green/30 bg-gradient-to-br from-brand-green to-brand-lime p-5 text-brand-brown brand-shadow">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-sm font-bold text-brand-brown/70">Estado general</p>
+                    <p class="mt-2 text-2xl font-black">Monitoreando</p>
+                </div>
+                <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/55">
+                    <span class="h-3 w-3 rounded-full bg-brand-brown ring-4 ring-white/40"></span>
+                </span>
+            </div>
+            <p class="mt-5 text-xs font-semibold text-brand-brown/65">MVP listo para registrar datos</p>
+        </article>
+    </div>
+</section>
+
+<section class="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
+    <div class="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <p class="text-sm font-bold uppercase tracking-[0.18em] text-brand-green">Módulos</p>
+            <h2 class="mt-1 text-2xl font-black tracking-tight text-brand-brown">Piscinas disponibles</h2>
+        </div>
+        <p class="text-sm text-stone-500">Los acuicultores autenticados pueden consultar todas las piscinas activas.</p>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-2">
+        {% for tarjeta in tarjetas %}
+        {% set piscina = tarjeta.piscina %}
+        {% if piscina.tipo == 'peces' %}
+        <article class="group relative overflow-hidden rounded-[2rem] border border-brand-green/30 bg-white brand-shadow">
+            <div class="fish-water bg-gradient-to-br from-brand-green to-brand-lime p-7 text-brand-brown sm:p-8">
+                <div class="relative z-10 flex items-start justify-between gap-5">
+                    <div>
+                        <div class="inline-flex rounded-full bg-white/55 px-3 py-1 text-xs font-black uppercase tracking-[0.16em]">Disponible</div>
+                        <h3 class="mt-4 text-2xl font-black">{{ piscina.nombre }}</h3>
+                        <p class="mt-2 max-w-md text-sm leading-6 text-brand-brown/70">{{ piscina.descripcion }}</p>
+                    </div>
+                    <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-white/55 shadow-sm">
+                        <svg viewBox="0 0 64 64" class="h-11 w-11" fill="none" aria-hidden="true">
+                            <path d="M7 32c9-13 23-17 37-9l13-9v16l-13-8c-14 8-28 4-37-9z" fill="#433116" transform="translate(0 9)"/>
+                            <circle cx="40" cy="31" r="2" fill="#fff"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            <div class="grid gap-4 p-6 sm:grid-cols-[1fr_auto] sm:items-center sm:p-8">
+                <div class="flex flex-wrap gap-x-7 gap-y-3 text-sm">
+                    <div>
+                        <p class="text-stone-400">Código</p>
+                        <p class="mt-1 font-bold text-brand-brown">{{ piscina.codigo }}</p>
+                    </div>
+                    <div>
+                        <p class="text-stone-400">Registros</p>
+                        <p class="mt-1 font-bold text-brand-brown">{{ piscina.total_registros }}</p>
+                    </div>
+                    <div>
+                        <p class="text-stone-400">Último pH</p>
+                        <p class="mt-1 font-bold text-brand-brown">
+                            {% if tarjeta.ultimo_registro %}{{ tarjeta.ultimo_registro.ph }}{% else %}Sin datos{% endif %}
+                        </p>
+                    </div>
+                </div>
+                <a href="{{ url('monitoreo:piscina_detalle', piscina_id=piscina.id) }}" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-brown px-5 py-3 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#35260f]">
+                    Ver piscina
+                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </a>
+            </div>
+        </article>
+        {% else %}
+        <article class="relative overflow-hidden rounded-[2rem] border border-stone-200 bg-white brand-shadow">
+            <div class="absolute right-0 top-0 h-36 w-36 rounded-bl-full bg-stone-100"></div>
+            <div class="relative p-7 sm:p-8">
+                <div class="flex items-start justify-between gap-5">
+                    <div>
+                        <div class="inline-flex rounded-full bg-stone-100 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-stone-500">Próximo sprint</div>
+                        <h3 class="mt-4 text-2xl font-black text-brand-brown">{{ piscina.nombre }}</h3>
+                        <p class="mt-2 max-w-md text-sm leading-6 text-stone-500">{{ piscina.descripcion }}</p>
+                    </div>
+                    <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-stone-100 text-brand-brown">
+                        <svg viewBox="0 0 64 64" class="h-11 w-11" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+                            <path d="M15 19c9-9 25-6 27 5 2 10-14 8-14 18 0 5 5 7 10 4 4-2 6-7 10-10" stroke-linecap="round"/>
+                            <circle cx="14" cy="20" r="3" fill="currentColor" stroke="none"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="mt-8 flex flex-col gap-4 border-t border-stone-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="text-sm">
+                        <p class="text-stone-400">Código</p>
+                        <p class="mt-1 font-bold text-brand-brown">{{ piscina.codigo }}</p>
+                    </div>
+                    <a href="{{ url('monitoreo:piscina_detalle', piscina_id=piscina.id) }}" class="inline-flex items-center justify-center rounded-2xl border border-stone-200 px-5 py-3 text-sm font-bold text-stone-600 transition hover:border-brand-green hover:bg-lime-50">
+                        Ver planificación
+                    </a>
+                </div>
+            </div>
+        </article>
+        {% endif %}
+        {% else %}
+        <div class="rounded-3xl border border-dashed border-stone-300 bg-white p-10 text-center text-stone-500 lg:col-span-2">
+            No hay piscinas activas. Crea una desde el panel administrativo.
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="mx-auto max-w-7xl px-4 pb-4 sm:px-6 lg:px-8">
+    <div class="overflow-hidden rounded-[2rem] border border-stone-200 bg-white brand-shadow">
+        <div class="flex flex-col gap-2 border-b border-stone-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+            <div>
+                <h2 class="text-xl font-black text-brand-brown">Actividad reciente</h2>
+                <p class="mt-1 text-sm text-stone-500">Últimas mediciones registradas en las piscinas.</p>
+            </div>
+        </div>
+        <div class="table-scroll overflow-x-auto">
+            <table class="min-w-full text-left text-sm">
+                <thead class="bg-stone-50 text-xs uppercase tracking-[0.12em] text-stone-500">
+                    <tr>
+                        <th class="px-6 py-4 font-bold sm:px-8">Fecha</th>
+                        <th class="px-6 py-4 font-bold">Piscina</th>
+                        <th class="px-6 py-4 font-bold">pH</th>
+                        <th class="px-6 py-4 font-bold">Población</th>
+                        <th class="px-6 py-4 font-bold">Responsable</th>
+                        <th class="px-6 py-4 font-bold"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-100">
+                    {% for registro in ultimos_registros %}
+                    <tr class="transition hover:bg-lime-50/60">
+                        <td class="whitespace-nowrap px-6 py-4 font-medium text-stone-600 sm:px-8">{{ registro.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 font-bold text-brand-brown">{{ registro.piscina.nombre }}</td>
+                        <td class="px-6 py-4"><span class="rounded-full bg-brand-green/15 px-3 py-1 font-bold text-brand-brown">{{ registro.ph }}</span></td>
+                        <td class="px-6 py-4 text-stone-600">{{ registro.poblacion_estimada }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-stone-600">{{ registro.acuicultor.nickname if registro.acuicultor else 'Sin asignar' }}</td>
+                        <td class="px-6 py-4 text-right">
+                            <a href="{{ url('monitoreo:registro_detalle', registro_id=registro.id) }}" class="font-bold text-brand-green hover:text-brand-brown">Ver detalle</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="px-6 py-12 text-center text-stone-500">Todavía no existen registros.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}

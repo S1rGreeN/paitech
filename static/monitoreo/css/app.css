@@ -1,0 +1,103 @@
+:root {
+    --brand-brown: #433116;
+    --brand-green: #95b53d;
+    --brand-lime: #aeb938;
+    --brand-gray-dark: #575757;
+    --brand-gray-light: #bcbcbc;
+    --surface: #f7f8f2;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    background:
+        radial-gradient(circle at 8% 0%, rgba(174, 185, 56, 0.12), transparent 26rem),
+        radial-gradient(circle at 100% 20%, rgba(149, 181, 61, 0.1), transparent 24rem),
+        #f8f9f4;
+}
+
+.brand-shadow {
+    box-shadow: 0 24px 60px rgba(67, 49, 22, 0.10);
+}
+
+.soft-grid {
+    background-image:
+        linear-gradient(rgba(67, 49, 22, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(67, 49, 22, 0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
+}
+
+.glass-card {
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.metric-ring {
+    background: conic-gradient(var(--brand-green) 0 72%, rgba(149, 181, 61, 0.18) 72% 100%);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    box-shadow: 0 0 0 4px rgba(149, 181, 61, 0.16) !important;
+}
+
+.errorlist {
+    margin-top: 0.5rem;
+    color: #b91c1c;
+    font-size: 0.875rem;
+}
+
+.errorlist li {
+    list-style: none;
+}
+
+.table-scroll::-webkit-scrollbar {
+    height: 8px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+    background: rgba(87, 87, 87, 0.25);
+    border-radius: 999px;
+}
+
+.fish-water {
+    position: relative;
+    overflow: hidden;
+}
+
+.fish-water::before,
+.fish-water::after {
+    content: "";
+    position: absolute;
+    left: -10%;
+    width: 120%;
+    height: 58px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.fish-water::before {
+    bottom: -32px;
+    transform: rotate(-2deg);
+}
+
+.fish-water::after {
+    bottom: -44px;
+    transform: rotate(3deg);
+    opacity: 0.72;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .float-soft {
+        animation: floatSoft 5s ease-in-out infinite;
+    }
+
+    @keyframes floatSoft {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+    }
+}

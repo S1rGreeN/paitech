@@ -1,0 +1,38 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Variables y secretos
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Django
+/db.sqlite3
+/staticfiles/
+/media/
+*.log
+
+# IDE y sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel/
+
+# Node/Tailwind si se compila más adelante
+node_modules/

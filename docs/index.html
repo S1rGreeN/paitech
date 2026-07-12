@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Vista previa estática de PaiPayTech.">
+  <title>PaiPayTech · Vista previa</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              brown: '#433116',
+              green: '#95B53D',
+              lime: '#AEB938',
+              gray: '#575757',
+              silver: '#BCBCBC',
+              cream: '#F7F8F2'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body{background:radial-gradient(circle at 5% 0%,rgba(174,185,56,.13),transparent 26rem),#f8f9f4}
+    .shadow-brand{box-shadow:0 24px 60px rgba(67,49,22,.10)}
+  </style>
+</head>
+<body class="min-h-screen text-stone-800 antialiased">
+  <div class="border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900">
+    Vista previa estática para GitHub Pages. El inicio de sesión, los formularios y SQLite funcionan en el proyecto Django local o en Vercel.
+  </div>
+
+  <header class="border-b border-stone-200 bg-white/90 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+      <div class="flex items-center gap-3">
+        <img src="paipay-logo.png" alt="PaiPay Santa Lucía" class="h-14 w-auto">
+        <div class="hidden border-l border-stone-200 pl-3 sm:block">
+          <p class="text-xs font-bold uppercase tracking-[.2em] text-brand-green">PaiPayTech</p>
+          <p class="text-sm text-stone-500">Monitoreo acuícola</p>
+        </div>
+      </div>
+      <span class="rounded-full bg-brand-green/15 px-4 py-2 text-sm font-bold text-brand-brown">Demo visual</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
+      <div class="relative overflow-hidden rounded-[2rem] bg-brand-brown px-7 py-10 text-white shadow-brand sm:px-10">
+        <div class="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-brand-green/25 blur-3xl"></div>
+        <div class="relative z-10 max-w-3xl">
+          <div class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[.18em]">
+            <span class="h-2 w-2 rounded-full bg-brand-lime"></span> Sistema de monitoreo
+          </div>
+          <h1 class="mt-5 text-4xl font-black tracking-tight sm:text-5xl">Datos claros para cuidar cada piscina.</h1>
+          <p class="mt-4 max-w-2xl text-lg leading-8 text-white/70">PaiPayTech centraliza calidad del agua, población estimada y muestras biométricas de peces.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <article class="rounded-3xl border border-stone-200 bg-white p-5 shadow-brand"><p class="text-sm font-semibold text-stone-500">Piscinas</p><p class="mt-2 text-3xl font-black text-brand-brown">2</p><p class="mt-4 text-xs text-stone-400">Peces y lombrices</p></article>
+        <article class="rounded-3xl border border-stone-200 bg-white p-5 shadow-brand"><p class="text-sm font-semibold text-stone-500">Registros</p><p class="mt-2 text-3xl font-black text-brand-brown">18</p><p class="mt-4 text-xs text-stone-400">Historial de mediciones</p></article>
+        <article class="rounded-3xl border border-stone-200 bg-white p-5 shadow-brand"><p class="text-sm font-semibold text-stone-500">pH promedio</p><p class="mt-2 text-3xl font-black text-brand-brown">7.20</p><p class="mt-4 text-xs text-stone-400">Piscina principal</p></article>
+        <article class="rounded-3xl bg-gradient-to-br from-brand-green to-brand-lime p-5 text-brand-brown shadow-brand"><p class="text-sm font-bold text-brand-brown/70">Estado</p><p class="mt-2 text-2xl font-black">Monitoreando</p><p class="mt-5 text-xs font-semibold text-brand-brown/65">MVP listo</p></article>
+      </div>
+    </section>
+
+    <section class="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
+      <div class="mb-5"><p class="text-sm font-bold uppercase tracking-[.18em] text-brand-green">Módulos</p><h2 class="mt-1 text-2xl font-black text-brand-brown">Piscinas disponibles</h2></div>
+      <div class="grid gap-6 lg:grid-cols-2">
+        <article class="overflow-hidden rounded-[2rem] border border-brand-green/30 bg-white shadow-brand">
+          <div class="bg-gradient-to-br from-brand-green to-brand-lime p-8 text-brand-brown">
+            <span class="rounded-full bg-white/55 px-3 py-1 text-xs font-black uppercase tracking-[.16em]">Disponible</span>
+            <h3 class="mt-4 text-2xl font-black">Piscina principal de peces</h3>
+            <p class="mt-2 text-sm leading-6 text-brand-brown/70">Calidad del agua, población y muestras de peces.</p>
+          </div>
+          <div class="flex items-center justify-between gap-4 p-7"><div><p class="text-xs text-stone-400">Código</p><p class="font-bold text-brand-brown">PZ-001</p></div><span class="rounded-2xl bg-brand-brown px-5 py-3 text-sm font-bold text-white">Ver piscina</span></div>
+        </article>
+        <article class="rounded-[2rem] border border-stone-200 bg-white p-8 shadow-brand">
+          <span class="rounded-full bg-stone-100 px-3 py-1 text-xs font-black uppercase tracking-[.16em] text-stone-500">Próximo sprint</span>
+          <h3 class="mt-4 text-2xl font-black text-brand-brown">Piscina de lombrices</h3>
+          <p class="mt-2 text-sm leading-6 text-stone-500">El módulo queda visible en la ruta del producto, pero sin formulario hasta definir sus métricas.</p>
+          <div class="mt-8 border-t border-stone-100 pt-6"><p class="text-xs text-stone-400">Código</p><p class="font-bold text-brand-brown">LB-001</p></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
+      <div class="overflow-hidden rounded-[2rem] border border-stone-200 bg-white shadow-brand">
+        <div class="border-b border-stone-100 px-7 py-5"><h2 class="text-xl font-black text-brand-brown">Actividad reciente</h2><p class="mt-1 text-sm text-stone-500">Ejemplo visual del historial.</p></div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead class="bg-stone-50 text-xs uppercase tracking-[.1em] text-stone-500"><tr><th class="px-7 py-4">Fecha</th><th class="px-7 py-4">Piscina</th><th class="px-7 py-4">pH</th><th class="px-7 py-4">Población</th></tr></thead>
+            <tbody class="divide-y divide-stone-100">
+              <tr><td class="px-7 py-4">11/07/2026 14:30</td><td class="px-7 py-4 font-bold text-brand-brown">Piscina principal</td><td class="px-7 py-4"><span class="rounded-full bg-brand-green/15 px-3 py-1 font-bold">7.20</span></td><td class="px-7 py-4">1.250</td></tr>
+              <tr><td class="px-7 py-4">10/07/2026 09:15</td><td class="px-7 py-4 font-bold text-brand-brown">Piscina principal</td><td class="px-7 py-4"><span class="rounded-full bg-brand-green/15 px-3 py-1 font-bold">7.10</span></td><td class="px-7 py-4">1.240</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

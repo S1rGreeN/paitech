@@ -1,0 +1,92 @@
+{% extends "monitoreo/base.jinja" %}
+
+{% block title %}Iniciar sesión · PaiPayTech{% endblock %}
+
+{% block content %}
+<section class="soft-grid min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+    <div class="mx-auto grid min-h-[calc(100vh-4rem)] max-w-6xl overflow-hidden rounded-[2rem] border border-white/70 bg-white brand-shadow lg:grid-cols-[1.08fr_0.92fr]">
+        <div class="relative hidden overflow-hidden bg-brand-brown p-12 text-white lg:flex lg:flex-col lg:justify-between">
+            <div class="absolute inset-0 opacity-15">
+                <svg viewBox="0 0 800 900" class="h-full w-full" aria-hidden="true">
+                    <defs>
+                        <pattern id="waves" width="120" height="50" patternUnits="userSpaceOnUse">
+                            <path d="M0 25 C30 5, 60 45, 90 25 S150 5, 180 25" fill="none" stroke="white" stroke-width="4"/>
+                        </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#waves)"/>
+                </svg>
+            </div>
+            <div class="relative z-10">
+                <div class="inline-flex items-center gap-3 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium backdrop-blur">
+                    <span class="h-2.5 w-2.5 rounded-full bg-brand-lime"></span>
+                    Monitoreo conectado con el campo
+                </div>
+                <h1 class="mt-8 max-w-xl text-5xl font-black leading-[1.08] tracking-tight">
+                    Datos claros para cuidar cada piscina.
+                </h1>
+                <p class="mt-5 max-w-lg text-lg leading-8 text-white/75">
+                    Registra calidad del agua, población estimada y muestras de peces en un solo lugar.
+                </p>
+            </div>
+
+            <div class="relative z-10">
+                <div class="fish-water float-soft rounded-[2rem] border border-white/15 bg-gradient-to-br from-brand-green to-brand-lime p-7 shadow-2xl">
+                    <div class="flex items-start justify-between gap-6">
+                        <div>
+                            <p class="text-sm font-semibold uppercase tracking-[0.2em] text-brand-brown/70">Piscina principal</p>
+                            <p class="mt-2 text-3xl font-black text-brand-brown">pH 7.20</p>
+                            <p class="mt-1 text-sm text-brand-brown/75">Condición estable · última medición</p>
+                        </div>
+                        <svg viewBox="0 0 64 64" class="h-16 w-16 text-white" fill="none" aria-hidden="true">
+                            <path d="M10 32c8-12 21-16 34-9l10-8v14l-10-8c-13 7-26 3-34-9z" fill="currentColor" opacity=".94" transform="translate(0 10)"/>
+                            <circle cx="39" cy="31" r="2.2" fill="#433116"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-center p-6 sm:p-10 lg:p-14">
+            <div class="w-full max-w-md">
+                <img src="{{ static('monitoreo/img/paipay-logo.png') }}" alt="PaiPay Santa Lucía" class="h-24 w-auto object-contain">
+                <div class="mt-7">
+                    <p class="text-sm font-bold uppercase tracking-[0.22em] text-brand-green">PaiPayTech</p>
+                    <h2 class="mt-2 text-3xl font-black tracking-tight text-brand-brown">Bienvenido de nuevo</h2>
+                    <p class="mt-3 text-stone-500">Inicia sesión para consultar y registrar información de las piscinas.</p>
+                </div>
+
+                {% if form.non_field_errors() %}
+                <div class="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {% for error in form.non_field_errors() %}<p>{{ error }}</p>{% endfor %}
+                </div>
+                {% endif %}
+
+                <form method="post" class="mt-7 space-y-5" novalidate>
+                    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+                    <div>
+                        <label for="{{ form.username.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.username.label }}</label>
+                        {{ form.username }}
+                        {% for error in form.username.errors %}<p class="mt-2 text-sm text-red-700">{{ error }}</p>{% endfor %}
+                    </div>
+                    <div>
+                        <label for="{{ form.password.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.password.label }}</label>
+                        {{ form.password }}
+                        {% for error in form.password.errors %}<p class="mt-2 text-sm text-red-700">{{ error }}</p>{% endfor %}
+                    </div>
+                    <button type="submit" class="flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-brown px-5 py-3.5 font-bold text-white shadow-lg shadow-stone-900/10 transition hover:-translate-y-0.5 hover:bg-[#35260f] focus:outline-none focus:ring-4 focus:ring-brand-green/30">
+                        Entrar a PaiPayTech
+                        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M5 12h14M13 6l6 6-6 6"/>
+                        </svg>
+                    </button>
+                </form>
+
+                <div class="mt-6 rounded-2xl bg-lime-50 px-4 py-3 text-sm text-brand-brown">
+                    <p class="font-bold">Acceso de demostración</p>
+                    <p class="mt-1"><code>acuicultor</code> · <code>${PAIPAY_ACUICULTOR_PASSWORD}</code></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

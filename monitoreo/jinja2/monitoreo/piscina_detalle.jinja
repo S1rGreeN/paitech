@@ -1,0 +1,127 @@
+{% extends "monitoreo/base.jinja" %}
+
+{% block title %}{{ piscina.nombre }} · PaiPayTech{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
+    <a href="{{ url('monitoreo:dashboard') }}" class="inline-flex items-center gap-2 text-sm font-bold text-stone-500 transition hover:text-brand-brown">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+        Volver al panel
+    </a>
+
+    <div class="mt-5 overflow-hidden rounded-[2rem] border border-stone-200 bg-white brand-shadow">
+        <div class="relative p-7 sm:p-9 {% if piscina.tipo == 'peces' %}bg-gradient-to-br from-brand-green to-brand-lime{% else %}bg-gradient-to-br from-stone-100 to-stone-200{% endif %}">
+            <div class="absolute right-8 top-5 opacity-10">
+                {% if piscina.tipo == 'peces' %}
+                <svg viewBox="0 0 160 100" class="h-28 w-44" fill="#433116"><path d="M8 50c24-34 62-45 101-23l35-24v43l-35-22C70 46 32 35 8 2z" transform="translate(0 37)"/><circle cx="100" cy="52" r="5" fill="white"/></svg>
+                {% else %}
+                <svg viewBox="0 0 160 100" class="h-28 w-44" fill="none" stroke="#433116" stroke-width="8"><path d="M20 30c25-26 70-12 66 18-4 26-42 20-40 42 2 19 31 18 46 2 10-11 16-24 30-31" stroke-linecap="round"/></svg>
+                {% endif %}
+            </div>
+            <div class="relative z-10 max-w-3xl">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="rounded-full bg-white/55 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-brand-brown">{{ piscina.get_tipo_display() }}</span>
+                    <span class="rounded-full bg-brand-brown/10 px-3 py-1 text-xs font-bold text-brand-brown">{{ piscina.codigo }}</span>
+                </div>
+                <h1 class="mt-5 text-3xl font-black tracking-tight text-brand-brown sm:text-4xl">{{ piscina.nombre }}</h1>
+                <p class="mt-3 max-w-2xl leading-7 text-brand-brown/70">{{ piscina.descripcion or 'Sin descripción registrada.' }}</p>
+                <div class="mt-7 flex flex-wrap gap-3">
+                    {% if piscina.tipo == 'peces' %}
+                    <a href="{{ url('monitoreo:registro_nuevo', piscina_id=piscina.id) }}" class="inline-flex items-center gap-2 rounded-2xl bg-brand-brown px-5 py-3 font-bold text-white shadow-lg shadow-stone-900/10 transition hover:-translate-y-0.5 hover:bg-[#35260f]">
+                        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                        Nuevo registro
+                    </a>
+                    {% else %}
+                    <button type="button" disabled class="inline-flex cursor-not-allowed items-center gap-2 rounded-2xl bg-stone-400 px-5 py-3 font-bold text-white opacity-75">
+                        Funcionalidad en desarrollo
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="grid divide-y divide-stone-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div class="p-6 sm:p-7">
+                <p class="text-sm font-semibold text-stone-500">Registros almacenados</p>
+                <p class="mt-2 text-3xl font-black text-brand-brown">{{ registros|length }}</p>
+            </div>
+            <div class="p-6 sm:p-7">
+                <p class="text-sm font-semibold text-stone-500">pH promedio</p>
+                <p class="mt-2 text-3xl font-black text-brand-brown">{% if promedio_ph is not none %}{{ promedio_ph|round(2) }}{% else %}—{% endif %}</p>
+            </div>
+            <div class="p-6 sm:p-7">
+                <p class="text-sm font-semibold text-stone-500">Estado del módulo</p>
+                <p class="mt-2 inline-flex items-center gap-2 font-black text-brand-brown">
+                    <span class="h-2.5 w-2.5 rounded-full {% if piscina.tipo == 'peces' %}bg-brand-green{% else %}bg-stone-400{% endif %}"></span>
+                    {% if piscina.tipo == 'peces' %}Activo{% else %}Planificado{% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% if piscina.tipo == 'lombrices' %}
+<section class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div class="rounded-[2rem] border border-dashed border-brand-green/50 bg-lime-50 p-8 sm:p-10">
+        <div class="max-w-3xl">
+            <p class="text-sm font-black uppercase tracking-[0.18em] text-brand-green">Siguiente sprint</p>
+            <h2 class="mt-3 text-2xl font-black text-brand-brown">Módulo para la piscina de lombrices</h2>
+            <p class="mt-3 leading-7 text-stone-600">
+                La piscina ya existe en el modelo para mantener la ruta del producto, pero todavía no admite registros. El próximo sprint debe definir qué variables corresponden a las lombrices antes de crear su formulario y su modelo de muestras.
+            </p>
+            <div class="mt-6 grid gap-3 sm:grid-cols-3">
+                <div class="rounded-2xl bg-white p-4"><p class="text-xs font-bold uppercase tracking-wider text-stone-400">Paso 1</p><p class="mt-1 font-bold text-brand-brown">Definir métricas</p></div>
+                <div class="rounded-2xl bg-white p-4"><p class="text-xs font-bold uppercase tracking-wider text-stone-400">Paso 2</p><p class="mt-1 font-bold text-brand-brown">Crear modelo</p></div>
+                <div class="rounded-2xl bg-white p-4"><p class="text-xs font-bold uppercase tracking-wider text-stone-400">Paso 3</p><p class="mt-1 font-bold text-brand-brown">Habilitar CRUD</p></div>
+            </div>
+        </div>
+    </div>
+</section>
+{% else %}
+<section class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div class="overflow-hidden rounded-[2rem] border border-stone-200 bg-white brand-shadow">
+        <div class="flex flex-col gap-3 border-b border-stone-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+            <div>
+                <h2 class="text-xl font-black text-brand-brown">Historial de registros</h2>
+                <p class="mt-1 text-sm text-stone-500">Se muestran hasta los 30 registros más recientes.</p>
+            </div>
+            <a href="{{ url('monitoreo:registro_nuevo', piscina_id=piscina.id) }}" class="inline-flex items-center justify-center gap-2 rounded-xl border border-brand-green/40 px-4 py-2.5 text-sm font-bold text-brand-brown transition hover:bg-lime-50">
+                Agregar medición
+            </a>
+        </div>
+        <div class="table-scroll overflow-x-auto">
+            <table class="min-w-full text-left text-sm">
+                <thead class="bg-stone-50 text-xs uppercase tracking-[0.11em] text-stone-500">
+                    <tr>
+                        <th class="px-6 py-4 font-bold sm:px-8">Fecha</th>
+                        <th class="px-6 py-4 font-bold">pH</th>
+                        <th class="px-6 py-4 font-bold">Nitrato</th>
+                        <th class="px-6 py-4 font-bold">Amonio</th>
+                        <th class="px-6 py-4 font-bold">Nitrito</th>
+                        <th class="px-6 py-4 font-bold">Población</th>
+                        <th class="px-6 py-4 font-bold">Muestras</th>
+                        <th class="px-6 py-4 font-bold"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-100">
+                    {% for registro in registros %}
+                    <tr class="transition hover:bg-lime-50/60">
+                        <td class="whitespace-nowrap px-6 py-4 font-medium text-stone-600 sm:px-8">{{ registro.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td class="px-6 py-4"><span class="rounded-full bg-brand-green/15 px-3 py-1 font-bold text-brand-brown">{{ registro.ph }}</span></td>
+                        <td class="px-6 py-4 text-stone-600">{{ registro.nitrato }} mg/L</td>
+                        <td class="px-6 py-4 text-stone-600">{{ registro.amonio }} mg/L</td>
+                        <td class="px-6 py-4 text-stone-600">{{ registro.nitrito }} mg/L</td>
+                        <td class="px-6 py-4 font-semibold text-brand-brown">{{ registro.poblacion_estimada }}</td>
+                        <td class="px-6 py-4 text-stone-600">{{ registro.muestras_peces.all()|length }}</td>
+                        <td class="px-6 py-4 text-right"><a href="{{ url('monitoreo:registro_detalle', registro_id=registro.id) }}" class="font-bold text-brand-green hover:text-brand-brown">Ver</a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="px-6 py-14 text-center text-stone-500">Aún no hay registros. Usa “Nuevo registro” para crear el primero.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

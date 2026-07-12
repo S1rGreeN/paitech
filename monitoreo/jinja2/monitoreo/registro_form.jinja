@@ -1,0 +1,215 @@
+{% extends "monitoreo/base.jinja" %}
+
+{% block title %}Nuevo registro · {{ piscina.nombre }}{% endblock %}
+
+{% macro field_errors(field) %}
+    {% for error in field.errors %}<p class="mt-2 text-sm font-medium text-red-700">{{ error }}</p>{% endfor %}
+{% endmacro %}
+
+{% block content %}
+<section class="mx-auto max-w-5xl px-4 pt-8 sm:px-6 lg:px-8">
+    <a href="{{ url('monitoreo:piscina_detalle', piscina_id=piscina.id) }}" class="inline-flex items-center gap-2 text-sm font-bold text-stone-500 transition hover:text-brand-brown">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+        Volver a {{ piscina.nombre }}
+    </a>
+
+    <div class="mt-5 rounded-[2rem] border border-stone-200 bg-white p-6 brand-shadow sm:p-9">
+        <div class="flex flex-col gap-5 border-b border-stone-100 pb-7 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+                <div class="inline-flex rounded-full bg-brand-green/15 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-brand-brown">{{ piscina.codigo }}</div>
+                <h1 class="mt-4 text-3xl font-black tracking-tight text-brand-brown">Nuevo registro de peces</h1>
+                <p class="mt-3 max-w-2xl leading-7 text-stone-500">Guarda una fotografía del estado del agua y al menos una muestra biométrica de pez.</p>
+            </div>
+            <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-gradient-to-br from-brand-green to-brand-lime text-brand-brown">
+                <svg viewBox="0 0 64 64" class="h-11 w-11" fill="none"><path d="M7 32c9-13 23-17 37-9l13-9v16l-13-8c-14 8-28 4-37-9z" fill="currentColor" transform="translate(0 9)"/><circle cx="40" cy="31" r="2" fill="white"/></svg>
+            </div>
+        </div>
+
+        {% if form.non_field_errors() or formset.non_form_errors() %}
+        <div class="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {% for error in form.non_field_errors() %}<p>{{ error }}</p>{% endfor %}
+            {% for error in formset.non_form_errors() %}<p>{{ error }}</p>{% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" class="mt-8" novalidate>
+            <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+            {{ formset.management_form }}
+
+            <section>
+                <div class="flex items-center gap-3">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-brown text-sm font-black text-white">1</span>
+                    <div>
+                        <h2 class="text-xl font-black text-brand-brown">Calidad del agua</h2>
+                        <p class="text-sm text-stone-500">Valores ambientales del momento del registro.</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 grid gap-5 sm:grid-cols-2">
+                    <div>
+                        <label for="{{ form.ph.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.ph.label }}</label>
+                        {{ form.ph }}
+                        <p class="mt-1.5 text-xs text-stone-400">Rango permitido: 0 a 14.</p>
+                        {{ field_errors(form.ph) }}
+                    </div>
+                    <div>
+                        <label for="{{ form.poblacion_estimada.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.poblacion_estimada.label }}</label>
+                        {{ form.poblacion_estimada }}
+                        <p class="mt-1.5 text-xs text-stone-400">Número aproximado de peces en la piscina.</p>
+                        {{ field_errors(form.poblacion_estimada) }}
+                    </div>
+                    <div>
+                        <label for="{{ form.nitrato.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.nitrato.label }}</label>
+                        {{ form.nitrato }}
+                        {{ field_errors(form.nitrato) }}
+                    </div>
+                    <div>
+                        <label for="{{ form.amonio.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.amonio.label }}</label>
+                        {{ form.amonio }}
+                        {{ field_errors(form.amonio) }}
+                    </div>
+                    <div>
+                        <label for="{{ form.nitrito.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.nitrito.label }}</label>
+                        {{ form.nitrito }}
+                        {{ field_errors(form.nitrito) }}
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label for="{{ form.observaciones.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ form.observaciones.label }}</label>
+                        {{ form.observaciones }}
+                        {{ field_errors(form.observaciones) }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="mt-10 border-t border-stone-100 pt-9">
+                <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-brown text-sm font-black text-white">2</span>
+                        <div>
+                            <h2 class="text-xl font-black text-brand-brown">Muestras de peces</h2>
+                            <p class="text-sm text-stone-500">Registra al menos un pez y hasta diez por medición.</p>
+                        </div>
+                    </div>
+                    <button type="button" id="add-sample" class="inline-flex items-center justify-center gap-2 rounded-xl border border-brand-green/40 px-4 py-2.5 text-sm font-bold text-brand-brown transition hover:bg-lime-50">
+                        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                        Agregar muestra
+                    </button>
+                </div>
+
+                <div id="sample-forms" class="mt-6 space-y-4">
+                    {% for sample_form in formset.forms %}
+                    <article class="sample-form rounded-3xl border border-stone-200 bg-stone-50/70 p-5 sm:p-6" data-form-index="{{ loop.index0 }}">
+                        <div class="mb-4 flex items-center justify-between gap-3">
+                            <h3 class="sample-title font-black text-brand-brown">Muestra {{ loop.index }}</h3>
+                            <button type="button" class="remove-sample hidden rounded-lg px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50">Quitar</button>
+                        </div>
+                        {% for hidden in sample_form.hidden_fields() %}{{ hidden }}{% endfor %}
+                        <div class="grid gap-4 sm:grid-cols-3">
+                            <div>
+                                <label for="{{ sample_form.especie.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ sample_form.especie.label }}</label>
+                                {{ sample_form.especie }}
+                                {{ field_errors(sample_form.especie) }}
+                            </div>
+                            <div>
+                                <label for="{{ sample_form.peso_gramos.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ sample_form.peso_gramos.label }}</label>
+                                {{ sample_form.peso_gramos }}
+                                {{ field_errors(sample_form.peso_gramos) }}
+                            </div>
+                            <div>
+                                <label for="{{ sample_form.talla_centimetros.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ sample_form.talla_centimetros.label }}</label>
+                                {{ sample_form.talla_centimetros }}
+                                {{ field_errors(sample_form.talla_centimetros) }}
+                            </div>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+
+                <template id="empty-form-template">
+                    <article class="sample-form rounded-3xl border border-stone-200 bg-stone-50/70 p-5 sm:p-6" data-form-index="__prefix__">
+                        <div class="mb-4 flex items-center justify-between gap-3">
+                            <h3 class="sample-title font-black text-brand-brown">Nueva muestra</h3>
+                            <button type="button" class="remove-sample rounded-lg px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50">Quitar</button>
+                        </div>
+                        <div class="grid gap-4 sm:grid-cols-3">
+                            <div>
+                                <label for="{{ formset.empty_form.especie.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ formset.empty_form.especie.label }}</label>
+                                {{ formset.empty_form.especie }}
+                            </div>
+                            <div>
+                                <label for="{{ formset.empty_form.peso_gramos.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ formset.empty_form.peso_gramos.label }}</label>
+                                {{ formset.empty_form.peso_gramos }}
+                            </div>
+                            <div>
+                                <label for="{{ formset.empty_form.talla_centimetros.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ formset.empty_form.talla_centimetros.label }}</label>
+                                {{ formset.empty_form.talla_centimetros }}
+                            </div>
+                        </div>
+                    </article>
+                </template>
+            </section>
+
+            <div class="mt-10 flex flex-col-reverse gap-3 border-t border-stone-100 pt-7 sm:flex-row sm:justify-end">
+                <a href="{{ url('monitoreo:piscina_detalle', piscina_id=piscina.id) }}" class="inline-flex items-center justify-center rounded-2xl border border-stone-200 px-5 py-3 font-bold text-stone-600 transition hover:bg-stone-50">Cancelar</a>
+                <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-brown px-6 py-3 font-bold text-white shadow-lg shadow-stone-900/10 transition hover:-translate-y-0.5 hover:bg-[#35260f]">
+                    Guardar registro
+                    <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </button>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+    const container = document.getElementById('sample-forms');
+    const addButton = document.getElementById('add-sample');
+    const totalInput = document.getElementById('id_muestras-TOTAL_FORMS');
+    const template = document.getElementById('empty-form-template');
+    const maxForms = 10;
+
+    function refreshTitles() {
+        container.querySelectorAll('.sample-form').forEach((card, index) => {
+            card.querySelector('.sample-title').textContent = `Muestra ${index + 1}`;
+            const removeButton = card.querySelector('.remove-sample');
+            if (removeButton) {
+                removeButton.classList.toggle('hidden', container.querySelectorAll('.sample-form').length <= 1);
+            }
+        });
+    }
+
+    addButton.addEventListener('click', () => {
+        const total = Number(totalInput.value);
+        if (total >= maxForms) return;
+        const html = template.innerHTML.replaceAll('__prefix__', total);
+        container.insertAdjacentHTML('beforeend', html);
+        totalInput.value = total + 1;
+        refreshTitles();
+    });
+
+    container.addEventListener('click', (event) => {
+        const button = event.target.closest('.remove-sample');
+        if (!button) return;
+        const forms = [...container.querySelectorAll('.sample-form')];
+        if (forms.length <= 1) return;
+
+        button.closest('.sample-form').remove();
+        const remaining = [...container.querySelectorAll('.sample-form')];
+        remaining.forEach((form, index) => {
+            form.dataset.formIndex = index;
+            form.querySelectorAll('input, select, textarea, label').forEach((element) => {
+                if (element.name) element.name = element.name.replace(/muestras-\d+-/g, `muestras-${index}-`);
+                if (element.id) element.id = element.id.replace(/id_muestras-\d+-/g, `id_muestras-${index}-`);
+                if (element.htmlFor) element.htmlFor = element.htmlFor.replace(/id_muestras-\d+-/g, `id_muestras-${index}-`);
+            });
+        });
+        totalInput.value = remaining.length;
+        refreshTitles();
+    });
+
+    refreshTitles();
+})();
+</script>
+{% endblock %}

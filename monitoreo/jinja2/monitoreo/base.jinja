@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="PaiPayTech: monitoreo de piscinas acuícolas y registros biométricos.">
+    <title>{% block title %}PaiPayTech{% endblock %}</title>
+    <link rel="icon" href="{{ static('monitoreo/img/paipay-mark.png') }}">
+    <link rel="stylesheet" href="{{ static('monitoreo/css/app.css') }}">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            brown: '#433116',
+                            green: '#95B53D',
+                            lime: '#AEB938',
+                            gray: '#575757',
+                            silver: '#BCBCBC',
+                            cream: '#F7F8F2'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="min-h-screen text-stone-800 antialiased">
+    {% if user.is_authenticated %}
+    <header class="sticky top-0 z-40 border-b border-stone-200/80 bg-white/90 backdrop-blur-xl">
+        <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+            <a href="{{ url('monitoreo:dashboard') }}" class="flex items-center gap-3" aria-label="Ir al panel principal">
+                <img src="{{ static('monitoreo/img/paipay-logo.png') }}" alt="PaiPay Santa Lucía" class="h-12 w-auto object-contain">
+                <div class="hidden border-l border-stone-200 pl-3 sm:block">
+                    <p class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-green">PaiPayTech</p>
+                    <p class="text-sm text-stone-500">Monitoreo acuícola</p>
+                </div>
+            </a>
+
+            <nav class="flex items-center gap-2 sm:gap-3">
+                <a href="{{ url('monitoreo:dashboard') }}" class="hidden rounded-xl px-4 py-2 text-sm font-semibold text-stone-600 transition hover:bg-lime-50 hover:text-brand-brown sm:inline-flex">
+                    Panel
+                </a>
+                <div class="hidden text-right md:block">
+                    <p class="text-sm font-semibold text-brand-brown">{{ user.get_full_name() or user.username }}</p>
+                    <p class="text-xs text-stone-500">Acuicultor</p>
+                </div>
+                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand-green/15 text-sm font-bold text-brand-brown">
+                    {{ (user.first_name or user.username)[0]|upper }}
+                </div>
+                <form method="post" action="{{ url('monitoreo:logout') }}">
+                    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+                    <button type="submit" class="rounded-xl border border-stone-200 px-3 py-2 text-sm font-semibold text-stone-600 transition hover:border-brand-green hover:bg-lime-50 hover:text-brand-brown">
+                        Salir
+                    </button>
+                </form>
+            </nav>
+        </div>
+    </header>
+    {% endif %}
+
+    {% if messages %}
+    <div class="fixed right-4 top-20 z-50 flex w-[calc(100%-2rem)] max-w-sm flex-col gap-3">
+        {% for message in messages %}
+        <div class="glass-card brand-shadow rounded-2xl border border-brand-green/30 px-4 py-3 text-sm font-medium text-brand-brown" role="status">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    {% if user.is_authenticated %}
+    <footer class="mt-14 border-t border-stone-200 bg-white/70">
+        <div class="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-7 text-sm text-stone-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+            <p><span class="font-semibold text-brand-brown">PaiPayTech</span> · Santa Lucía</p>
+            <p>MVP de monitoreo acuícola · {{ now().year }}</p>
+        </div>
+    </footer>
+    {% endif %}
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,118 @@
+{% extends "monitoreo/base.jinja" %}
+
+{% block title %}Registro {{ registro.id }} · PaiPayTech{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
+    <a href="{{ url('monitoreo:piscina_detalle', piscina_id=registro.piscina.id) }}" class="inline-flex items-center gap-2 text-sm font-bold text-stone-500 transition hover:text-brand-brown">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+        Volver a {{ registro.piscina.nombre }}
+    </a>
+
+    <div class="mt-5 overflow-hidden rounded-[2rem] border border-stone-200 bg-white brand-shadow">
+        <div class="relative bg-brand-brown px-6 py-8 text-white sm:px-9">
+            <div class="absolute right-0 top-0 h-48 w-48 rounded-bl-full bg-brand-green/15"></div>
+            <div class="relative z-10 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em]">Registro #{{ registro.id }}</span>
+                        <span class="rounded-full bg-brand-green px-3 py-1 text-xs font-black text-brand-brown">{{ registro.piscina.codigo }}</span>
+                    </div>
+                    <h1 class="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Medición de {{ registro.fecha.strftime('%d/%m/%Y') }}</h1>
+                    <p class="mt-3 text-white/65">{{ registro.fecha.strftime('%H:%M') }} · Registrado por {{ registro.acuicultor.nickname if registro.acuicultor else 'usuario no disponible' }}</p>
+                </div>
+                <a href="{{ url('monitoreo:registro_nuevo', piscina_id=registro.piscina.id) }}" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-brand-brown transition hover:-translate-y-0.5 hover:bg-lime-50">
+                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                    Crear otro registro
+                </a>
+            </div>
+        </div>
+
+        <div class="grid gap-4 p-6 sm:grid-cols-2 sm:p-8 lg:grid-cols-5">
+            <article class="rounded-3xl bg-lime-50 p-5 lg:col-span-1">
+                <p class="text-sm font-bold text-stone-500">pH</p>
+                <p class="mt-2 text-3xl font-black text-brand-brown">{{ registro.ph }}</p>
+                <p class="mt-2 text-xs text-stone-400">Escala 0–14</p>
+            </article>
+            <article class="rounded-3xl bg-stone-50 p-5">
+                <p class="text-sm font-bold text-stone-500">Nitrato</p>
+                <p class="mt-2 text-2xl font-black text-brand-brown">{{ registro.nitrato }}</p>
+                <p class="mt-2 text-xs text-stone-400">mg/L</p>
+            </article>
+            <article class="rounded-3xl bg-stone-50 p-5">
+                <p class="text-sm font-bold text-stone-500">Amonio</p>
+                <p class="mt-2 text-2xl font-black text-brand-brown">{{ registro.amonio }}</p>
+                <p class="mt-2 text-xs text-stone-400">mg/L</p>
+            </article>
+            <article class="rounded-3xl bg-stone-50 p-5">
+                <p class="text-sm font-bold text-stone-500">Nitrito</p>
+                <p class="mt-2 text-2xl font-black text-brand-brown">{{ registro.nitrito }}</p>
+                <p class="mt-2 text-xs text-stone-400">mg/L</p>
+            </article>
+            <article class="rounded-3xl bg-brand-green/15 p-5">
+                <p class="text-sm font-bold text-stone-500">Población</p>
+                <p class="mt-2 text-2xl font-black text-brand-brown">{{ registro.poblacion_estimada }}</p>
+                <p class="mt-2 text-xs text-stone-400">peces estimados</p>
+            </article>
+        </div>
+    </div>
+</section>
+
+<section class="mx-auto grid max-w-7xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[1fr_340px] lg:px-8">
+    <div class="overflow-hidden rounded-[2rem] border border-stone-200 bg-white brand-shadow">
+        <div class="border-b border-stone-100 px-6 py-5 sm:px-8">
+            <h2 class="text-xl font-black text-brand-brown">Muestras biométricas</h2>
+            <p class="mt-1 text-sm text-stone-500">Peso y talla medidos para los peces seleccionados.</p>
+        </div>
+        <div class="table-scroll overflow-x-auto">
+            <table class="min-w-full text-left text-sm">
+                <thead class="bg-stone-50 text-xs uppercase tracking-[0.11em] text-stone-500">
+                    <tr>
+                        <th class="px-6 py-4 font-bold sm:px-8">#</th>
+                        <th class="px-6 py-4 font-bold">Especie</th>
+                        <th class="px-6 py-4 font-bold">Peso</th>
+                        <th class="px-6 py-4 font-bold">Talla</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-stone-100">
+                    {% for muestra in registro.muestras_peces.all() %}
+                    <tr class="hover:bg-lime-50/60">
+                        <td class="px-6 py-4 font-bold text-stone-400 sm:px-8">{{ loop.index }}</td>
+                        <td class="px-6 py-4 font-bold text-brand-brown">{{ muestra.especie }}</td>
+                        <td class="px-6 py-4 text-stone-600">{{ muestra.peso_gramos }} g</td>
+                        <td class="px-6 py-4 text-stone-600">{{ muestra.talla_centimetros }} cm</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="px-6 py-12 text-center text-stone-500">Este registro no contiene muestras.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <aside class="space-y-6">
+        <div class="rounded-[2rem] border border-stone-200 bg-white p-6 brand-shadow">
+            <p class="text-xs font-black uppercase tracking-[0.16em] text-brand-green">Resumen de muestras</p>
+            <div class="mt-5 space-y-4">
+                <div class="flex items-end justify-between gap-3 border-b border-stone-100 pb-4">
+                    <span class="text-sm text-stone-500">Cantidad</span>
+                    <strong class="text-2xl text-brand-brown">{{ registro.muestras_peces.all()|length }}</strong>
+                </div>
+                <div class="flex items-end justify-between gap-3 border-b border-stone-100 pb-4">
+                    <span class="text-sm text-stone-500">Peso promedio</span>
+                    <strong class="text-lg text-brand-brown">{% if resumen_muestras.peso_promedio is not none %}{{ resumen_muestras.peso_promedio|round(2) }} g{% else %}—{% endif %}</strong>
+                </div>
+                <div class="flex items-end justify-between gap-3">
+                    <span class="text-sm text-stone-500">Talla promedio</span>
+                    <strong class="text-lg text-brand-brown">{% if resumen_muestras.talla_promedio is not none %}{{ resumen_muestras.talla_promedio|round(2) }} cm{% else %}—{% endif %}</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="rounded-[2rem] border border-brand-green/30 bg-lime-50 p-6">
+            <p class="text-xs font-black uppercase tracking-[0.16em] text-brand-green">Observaciones</p>
+            <p class="mt-4 text-sm leading-7 text-stone-600">{{ registro.observaciones or 'No se registraron observaciones adicionales.' }}</p>
+        </div>
+    </aside>
+</section>
+{% endblock %}
