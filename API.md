@@ -49,7 +49,11 @@ Ejemplo con agua y dos peces:
 
 `agua` puede ser `null` y `peces` puede ser una lista vacía, pero no simultáneamente. `poblacion_estimada` siempre es obligatoria. La especie proviene de la piscina.
 
-Un `POST` repetido con el mismo UUID devuelve el registro existente sin duplicarlo. Una corrección con versión obsoleta devuelve HTTP `409` y `codigo: conflicto_version`.
+Un `POST` repetido con el mismo UUID **y el mismo contenido** devuelve el registro
+existente sin duplicarlo. Si ese UUID ya existe con datos distintos o fue
+modificado/anulado, devuelve HTTP `409`; así una respuesta perdida no puede
+convertirse después en una sobrescritura silenciosa. Una corrección o anulación
+con versión obsoleta también devuelve `409` y `codigo: conflicto_version`.
 
 ## Movimientos
 

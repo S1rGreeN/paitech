@@ -124,6 +124,18 @@ class JornadasApiTests(BasePaiPayTest):
         self.assertEqual(JornadaRegistro.objects.count(), 1)
         self.assertEqual(AuditoriaCambio.objects.count(), 1)
 
+    def test_mismo_uuid_con_datos_distintos_devuelve_409(self):
+        self.autenticar()
+        payload = self.payload_jornada()
+        primera = self.api.post(reverse("monitoreo:api_jornadas"), payload, format="json")
+        payload["poblacion_estimada"] = 187
+        conflicto = self.api.post(reverse("monitoreo:api_jornadas"), payload, format="json")
+
+        self.assertEqual(primera.status_code, 201)
+        self.assertEqual(conflicto.status_code, 409)
+        self.assertEqual(JornadaRegistro.objects.get().poblacion_estimada, 200)
+        self.assertEqual(AuditoriaCambio.objects.count(), 1)
+
     def test_correccion_incrementa_version_y_version_antigua_devuelve_409(self):
         self.autenticar()
         creada = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(), format="json")
@@ -163,6 +175,26 @@ class JornadasApiTests(BasePaiPayTest):
         self.assertEqual(jornada.estado, JornadaRegistro.Estado.ANULADA)
         self.assertTrue(JornadaRegistro.objects.filter(pk=jornada.id).exists())
         self.assertEqual(AuditoriaCambio.objects.filter(entidad_uuid=jornada.id).count(), 2)
+
+    def test_edicion_antigua_de_jornada_anulada_devuelve_409(self):
+        self.autenticar()
+        payload = self.payload_jornada()
+        creada = self.api.post(reverse("monitoreo:api_jornadas"), payload, format="json")
+        jornada_id = creada.data["id"]
+        self.api.post(
+            reverse("monitoreo:api_jornada_anular", args=[jornada_id]),
+            {"version": 1, "motivo": "Registro duplicado"},
+            format="json",
+        )
+        payload.update({"version": 1, "poblacion_estimada": 187})
+
+        conflicto = self.api.put(
+            reverse("monitoreo:api_jornada_detalle", args=[jornada_id]),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(conflicto.status_code, 409)
 
 
 class SemaforoYPoblacionTests(BasePaiPayTest):
@@ -235,6 +267,26 @@ class MovimientosApiTests(BasePaiPayTest):
         self.assertEqual(movimiento.estado, MovimientoPoblacion.Estado.ANULADO)
         self.assertEqual(movimiento.version, 3)
         self.assertEqual(AuditoriaCambio.objects.filter(entidad_uuid=movimiento_id).count(), 3)
+
+    def test_mismo_uuid_de_movimiento_con_datos_distintos_devuelve_409(self):
+        self.autenticar()
+        movimiento_id = str(uuid.uuid4())
+        base = {
+            "id": movimiento_id,
+            "tipo": "MORTALIDAD",
+            "cantidad": 13,
+            "piscina_origen": str(self.piscina.id),
+            "piscina_destino": None,
+            "ocurrido_en": timezone.now().isoformat(),
+            "observaciones": "Conteo inicial",
+        }
+        primera = self.api.post(reverse("monitoreo:api_movimientos"), base, format="json")
+        base["cantidad"] = 12
+        conflicto = self.api.post(reverse("monitoreo:api_movimientos"), base, format="json")
+
+        self.assertEqual(primera.status_code, 201)
+        self.assertEqual(conflicto.status_code, 409)
+        self.assertEqual(MovimientoPoblacion.objects.get().cantidad, 13)
 
     def test_salud_no_requiere_token(self):
         respuesta = self.api.get(reverse("monitoreo:api_health"))

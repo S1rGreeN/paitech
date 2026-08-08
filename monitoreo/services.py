@@ -101,6 +101,64 @@ def _registrar_auditoria(*, entidad, entidad_uuid, accion, actor, version_anteri
     )
 
 
+def _jornada_equivale_a_reintento(existente, *, piscina, capturada_en,
+                                   poblacion_estimada, observaciones,
+                                   fuente, dispositivo_id, agua, peces):
+    if existente.version != 1 or existente.estado != JornadaRegistro.Estado.COMPLETA:
+        return False
+    if (
+        existente.piscina_id != piscina.id
+        or existente.capturada_en != capturada_en
+        or existente.poblacion_estimada != poblacion_estimada
+        or existente.observaciones != observaciones
+        or existente.fuente != fuente
+        or existente.dispositivo_id != dispositivo_id
+    ):
+        return False
+
+    try:
+        agua_existente = existente.agua
+    except MedicionAgua.DoesNotExist:
+        agua_existente = None
+    if (agua_existente is None) != (agua is None):
+        return False
+    if agua_existente is not None:
+        for campo in ("ph", "nitrato", "nitrito", "amonio"):
+            if getattr(agua_existente, campo) != agua[campo]:
+                return False
+
+    try:
+        peces_existentes = list(existente.muestra_biometrica.peces.all())
+    except MuestraBiometrica.DoesNotExist:
+        peces_existentes = []
+    if len(peces_existentes) != len(peces):
+        return False
+    return all(
+        existente_pez.peso_gramos == recibido["peso_gramos"]
+        and existente_pez.talla_centimetros == recibido["talla_centimetros"]
+        for existente_pez, recibido in zip(peces_existentes, peces)
+    )
+
+
+def _movimiento_equivale_a_reintento(existente, *, tipo, cantidad,
+                                      ocurrido_en, piscina_origen,
+                                      piscina_destino, observaciones):
+    return (
+        existente.version == 1
+        and existente.estado == MovimientoPoblacion.Estado.ACTIVO
+        and existente.tipo == tipo
+        and existente.cantidad == cantidad
+        and existente.ocurrido_en == ocurrido_en
+        and existente.piscina_origen_id == (
+            piscina_origen.id if piscina_origen else None
+        )
+        and existente.piscina_destino_id == (
+            piscina_destino.id if piscina_destino else None
+        )
+        and existente.observaciones == observaciones
+    )
+
+
 def _validar_piscina(perfil, piscina):
     if piscina.comunidad_id != perfil.comunidad_id:
         raise PermissionDenied("La piscina no pertenece a la comunidad del usuario.")
@@ -136,7 +194,21 @@ def crear_jornada(*, actor, piscina, capturada_en, poblacion_estimada, observaci
         if existente:
             if not existente.puede_modificar(actor):
                 raise PermissionDenied("El UUID ya pertenece a otro autor.")
-            return existente, False
+            if _jornada_equivale_a_reintento(
+                existente,
+                piscina=piscina,
+                capturada_en=capturada_en,
+                poblacion_estimada=poblacion_estimada,
+                observaciones=observaciones,
+                fuente=fuente,
+                dispositivo_id=dispositivo_id,
+                agua=agua,
+                peces=peces or [],
+            ):
+                return existente, False
+            raise ConflictoVersion(
+                "El UUID de la jornada ya existe con datos o versión diferentes."
+            )
 
     jornada = JornadaRegistro(
         id=jornada_id,
@@ -171,10 +243,10 @@ def corregir_jornada(*, jornada, actor, version_esperada, piscina, capturada_en,
     jornada = JornadaRegistro.objects.select_for_update().get(pk=jornada.pk)
     if not jornada.puede_modificar(actor):
         raise PermissionDenied("Solo el autor o un administrador pueden corregir la jornada.")
-    if jornada.estado == JornadaRegistro.Estado.ANULADA:
-        raise ValidationError("Una jornada anulada no puede corregirse.")
     if jornada.version != version_esperada:
         raise ConflictoVersion(f"La jornada está en la versión {jornada.version}; se recibió la {version_esperada}.")
+    if jornada.estado == JornadaRegistro.Estado.ANULADA:
+        raise ValidationError("Una jornada anulada no puede corregirse.")
     perfil = perfil_de(actor)
     _validar_piscina(perfil, piscina)
     antes = snapshot_jornada(jornada)
@@ -277,7 +349,19 @@ def crear_movimiento(*, actor, tipo, cantidad, ocurrido_en, piscina_origen=None,
         if existente:
             if not existente.puede_modificar(actor):
                 raise PermissionDenied("El UUID ya pertenece a otro autor.")
-            return existente, False
+            if _movimiento_equivale_a_reintento(
+                existente,
+                tipo=tipo,
+                cantidad=cantidad,
+                ocurrido_en=ocurrido_en,
+                piscina_origen=piscina_origen,
+                piscina_destino=piscina_destino,
+                observaciones=observaciones,
+            ):
+                return existente, False
+            raise ConflictoVersion(
+                "El UUID del movimiento ya existe con datos o versión diferentes."
+            )
     movimiento = MovimientoPoblacion(
         id=movimiento_id,
         tipo=tipo,
@@ -308,10 +392,10 @@ def corregir_movimiento(*, movimiento, actor, version_esperada, tipo, cantidad, 
     movimiento = MovimientoPoblacion.objects.select_for_update().get(pk=movimiento.pk)
     if not movimiento.puede_modificar(actor):
         raise PermissionDenied("Solo el autor o un administrador pueden corregir el movimiento.")
-    if movimiento.estado == MovimientoPoblacion.Estado.ANULADO:
-        raise ValidationError("Un movimiento anulado no puede corregirse.")
     if movimiento.version != version_esperada:
         raise ConflictoVersion(f"El movimiento está en la versión {movimiento.version}; se recibió la {version_esperada}.")
+    if movimiento.estado == MovimientoPoblacion.Estado.ANULADO:
+        raise ValidationError("Un movimiento anulado no puede corregirse.")
     perfil = perfil_de(actor)
     for piscina in (piscina_origen, piscina_destino):
         if piscina is not None:

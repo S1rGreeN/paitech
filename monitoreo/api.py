@@ -379,7 +379,7 @@ class MovimientosApiView(APIView):
                 movimiento_id=datos.pop("id", None),
                 **datos,
             )
-        except (PermissionDenied, DjangoValidationError) as error:
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
             return _respuesta_error(error)
         return Response(movimiento_json(movimiento), status=status.HTTP_201_CREATED if creado else status.HTTP_200_OK)
 
