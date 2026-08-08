@@ -32,12 +32,14 @@ python manage.py runserver
 
 La v1.4 usa `db_v14.sqlite3`. El antiguo `db.sqlite3` no se modifica y queda como respaldo del prototipo.
 
-Credenciales de demostración:
+El comando muestra credenciales aleatorias únicamente cuando crea las cuentas.
+Si las cuentas ya existen y necesitas claves nuevas, ejecuta:
 
-```text
-acuicultor@paipay.local / ${PAIPAY_ACUICULTOR_PASSWORD}
-admin@paipay.local / ${PAIPAY_ADMIN_PASSWORD}
+```powershell
+python manage.py seed_demo --rotar-claves
 ```
+
+Las claves demo no se guardan en Git. Este comando es solo para desarrollo local.
 
 ## Verificación
 

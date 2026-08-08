@@ -18,6 +18,7 @@ from .models import (
     MovimientoPoblacion,
     Piscina,
 )
+from .management.commands.seed_demo import generar_clave_demo
 from .semaforo import evaluar_agua
 from .services import calcular_poblacion_teorica, crear_jornada, crear_movimiento
 
@@ -57,11 +58,27 @@ class BasePaiPayTest(TestCase):
 
 
 class AutenticacionYWebTests(BasePaiPayTest):
+    def test_clave_demo_es_breve_aleatoria_y_combina_tipos_de_caracter(self):
+        clave = generar_clave_demo()
+
+        self.assertEqual(len(clave), 10)
+        self.assertTrue(any(caracter.islower() for caracter in clave))
+        self.assertTrue(any(caracter.isupper() for caracter in clave))
+        self.assertTrue(any(caracter.isdigit() for caracter in clave))
+        self.assertTrue(any(caracter in "!@#%" for caracter in clave))
+
     def test_login_web_y_api_usan_correo(self):
         self.assertTrue(self.client.login(username="ana@example.com", password="ClaveSegura123!"))
         respuesta = self.api.post(reverse("monitoreo:api_login"), {"email": "ANA@example.com", "password": "ClaveSegura123!"}, format="json")
         self.assertEqual(respuesta.status_code, 200)
         self.assertIn("token", respuesta.data)
+
+    def test_login_web_no_publica_credenciales_demo(self):
+        respuesta = self.client.get(reverse("monitoreo:login"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, "Acceso de demostración")
+        self.assertContains(respuesta, "No compartas tu contraseña")
 
     def test_login_rechaza_cadena_de_inyeccion_como_correo(self):
         respuesta = self.api.post(
