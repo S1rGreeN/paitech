@@ -9,6 +9,7 @@ from rest_framework import serializers, status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import (
@@ -45,17 +46,30 @@ class PezSerializer(serializers.Serializer):
     talla_centimetros = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0.01"))
 
 
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=254)
+    password = serializers.CharField(
+        max_length=128,
+        trim_whitespace=False,
+        write_only=True,
+    )
+
+
 class JornadaEscrituraSerializer(serializers.Serializer):
     id = serializers.UUIDField(required=False)
     piscina = serializers.UUIDField()
     capturada_en = serializers.DateTimeField()
     poblacion_estimada = serializers.IntegerField(min_value=0)
-    observaciones = serializers.CharField(required=False, allow_blank=True, default="")
+    observaciones = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=5000
+    )
     dispositivo_id = serializers.CharField(required=False, allow_blank=True, max_length=120, default="")
     version = serializers.IntegerField(required=False, min_value=1)
-    motivo_correccion = serializers.CharField(required=False, allow_blank=True, default="")
+    motivo_correccion = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=1000
+    )
     agua = AguaSerializer(required=False, allow_null=True)
-    peces = PezSerializer(many=True, required=False, default=list)
+    peces = PezSerializer(many=True, required=False, default=list, max_length=2000)
 
     def validate(self, attrs):
         if attrs.get("agua") is None and not attrs.get("peces"):
@@ -75,9 +89,13 @@ class MovimientoEscrituraSerializer(serializers.Serializer):
     piscina_origen = serializers.UUIDField(required=False, allow_null=True)
     piscina_destino = serializers.UUIDField(required=False, allow_null=True)
     ocurrido_en = serializers.DateTimeField()
-    observaciones = serializers.CharField(required=False, allow_blank=True, default="")
+    observaciones = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=5000
+    )
     version = serializers.IntegerField(required=False, min_value=1)
-    motivo_correccion = serializers.CharField(required=False, allow_blank=True, default="")
+    motivo_correccion = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=1000
+    )
 
 
 def _errores_django(error):
@@ -188,12 +206,14 @@ def movimiento_json(movimiento):
 
 class LoginApiView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
 
     def post(self, request):
-        email = str(request.data.get("email", "")).strip().lower()
-        password = request.data.get("password", "")
-        if not email or not password:
-            return Response({"detail": "Correo y contraseña son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = LoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"].strip().lower()
+        password = serializer.validated_data["password"]
         usuario = authenticate(request=request, username=email, password=password)
         if usuario is None or not usuario.is_active:
             return Response({"detail": "Credenciales inválidas."}, status=status.HTTP_401_UNAUTHORIZED)

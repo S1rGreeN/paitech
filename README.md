@@ -14,7 +14,9 @@ Backend, web comunitaria y API REST del sistema de monitoreo acuícola de Paipay
 - Lombricultura visible como “Próximamente”; laboratorio fuera de v1.4.
 - Neon PostgreSQL como base compartida y Railway como destino de despliegue.
 
-El contrato móvil está documentado en [API.md](API.md) y las decisiones generales en `../decisiones.md`.
+El contrato móvil está documentado en [API.md](API.md), la línea base de
+seguridad en [SECURITY.md](SECURITY.md) y las decisiones generales en
+`../decisiones.md`.
 
 ## Desarrollo local en Windows
 
@@ -42,6 +44,7 @@ admin@paipay.local / ${PAIPAY_ADMIN_PASSWORD}
 ```powershell
 python manage.py makemigrations --check --dry-run
 python manage.py check
+python manage.py check --deploy
 python manage.py test
 python manage.py collectstatic --noinput
 ```

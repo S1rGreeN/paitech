@@ -34,6 +34,11 @@ ALLOWED_HOSTS = env_list(
 )
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "")
 
+if not DEBUG and "ALLOWED_HOSTS" not in os.environ:
+    raise ImproperlyConfigured(
+        "Define ALLOWED_HOSTS explícitamente antes de desplegar."
+    )
+
 INSTALLED_APPS = [
     "cuentas.apps.CuentasConfig",
     "django.contrib.admin",
@@ -141,6 +146,12 @@ LOGIN_URL = "monitoreo:login"
 LOGIN_REDIRECT_URL = "monitoreo:dashboard"
 LOGOUT_REDIRECT_URL = "monitoreo:login"
 
+# Límites defensivos: no hay carga de archivos en v1.4 y una jornada JSON no
+# necesita cuerpos arbitrariamente grandes. El máximo de peces se valida además
+# en el serializer para responder 400 antes de tocar la base.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 3000
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.TokenAuthentication",
@@ -151,6 +162,9 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "login": os.getenv("LOGIN_THROTTLE_RATE", "10/minute"),
+    },
 }
 
 if not DEBUG:
@@ -158,6 +172,8 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
+    SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
     X_FRAME_OPTIONS = "DENY"
     SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
     SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))

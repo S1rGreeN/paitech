@@ -61,6 +61,17 @@ class AutenticacionYWebTests(BasePaiPayTest):
         self.assertEqual(respuesta.status_code, 200)
         self.assertIn("token", respuesta.data)
 
+    def test_login_rechaza_cadena_de_inyeccion_como_correo(self):
+        respuesta = self.api.post(
+            reverse("monitoreo:api_login"),
+            {"email": "' OR 1=1; DROP TABLE cuentas_usuario; --", "password": "x"},
+            format="json",
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertNotIn("token", respuesta.data)
+        self.assertEqual(get_user_model().objects.count(), 2)
+
     def test_dashboard_requiere_login_y_muestra_comunidad(self):
         respuesta = self.client.get(reverse("monitoreo:dashboard"))
         self.assertEqual(respuesta.status_code, 302)
@@ -113,6 +124,31 @@ class JornadasApiTests(BasePaiPayTest):
         self.assertEqual(ambos.status_code, 201)
         vacia = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(agua=None, peces=[]), format="json")
         self.assertEqual(vacia.status_code, 400)
+
+    def test_observacion_sql_maliciosa_se_guarda_como_texto(self):
+        self.autenticar()
+        contenido = "'); DROP TABLE monitoreo_jornadaregistro; --"
+
+        respuesta = self.api.post(
+            reverse("monitoreo:api_jornadas"),
+            self.payload_jornada(observaciones=contenido),
+            format="json",
+        )
+
+        self.assertEqual(respuesta.status_code, 201)
+        self.assertEqual(JornadaRegistro.objects.get().observaciones, contenido)
+        self.assertEqual(self.api.get(reverse("monitoreo:api_jornadas")).status_code, 200)
+
+    def test_api_limita_observaciones_excesivas(self):
+        self.autenticar()
+        respuesta = self.api.post(
+            reverse("monitoreo:api_jornadas"),
+            self.payload_jornada(observaciones="x" * 5001),
+            format="json",
+        )
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(JornadaRegistro.objects.count(), 0)
 
     def test_uuid_hace_reintento_idempotente(self):
         self.autenticar()
