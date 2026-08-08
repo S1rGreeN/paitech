@@ -16,10 +16,10 @@ def _lectura(parametro, valor, unidad, estado, diagnostico, recomendacion):
 
 
 def evaluar_agua(agua):
-    """Replica los umbrales provisionales de Android v1.3 sin inferir mortalidad."""
+    """Replica los umbrales de Android v1.3 sin inferir mortalidad."""
     ph = Decimal(agua.ph)
     nitrito = Decimal(agua.nitrito)
-    amonio = Decimal(agua.amonio)
+    amoniaco_total = Decimal(agua.amoniaco_total)
     nitrato = Decimal(agua.nitrato)
     lecturas = []
 
@@ -34,7 +34,7 @@ def evaluar_agua(agua):
 
     parametros = (
         ("Nitrito", nitrito, Decimal("0.5"), Decimal("1.0")),
-        ("Amonio", amonio, Decimal("0.5"), Decimal("1.0")),
+        ("Amoníaco total", amoniaco_total, Decimal("0.5"), Decimal("1.0")),
         ("Nitrato", nitrato, Decimal("50"), Decimal("100")),
     )
     for nombre, valor, precaucion, critico in parametros:
@@ -44,9 +44,9 @@ def evaluar_agua(agua):
             estado, diagnostico, recomendacion = "AMARILLO", f"{nombre} por encima del rango deseable.", "Revisar el manejo y repetir la medición."
         else:
             estado, diagnostico, recomendacion = "VERDE", f"{nombre} en nivel seguro provisional.", "Mantener el manejo actual."
-        lecturas.append(_lectura(nombre, valor, "mg/L", estado, diagnostico, recomendacion))
+        lecturas.append(_lectura(nombre, valor, "ppm", estado, diagnostico, recomendacion))
 
-    nh3 = float(amonio) / (1 + 10 ** (9.25 - float(ph)))
+    nh3 = float(amoniaco_total) / (1 + 10 ** (9.25 - float(ph)))
     if nh3 > 0.05:
         estado_nh3 = "ROJO"
     elif nh3 > 0.02:
@@ -55,19 +55,19 @@ def evaluar_agua(agua):
         estado_nh3 = "VERDE"
     lecturas.append(
         _lectura(
-            "Amoníaco libre",
+            "Amoníaco no ionizado estimado",
             f"{nh3:.5f}",
-            "mg/L",
+            "ppm",
             estado_nh3,
             "Estimación provisional de la fracción tóxica según pH.",
-            "Confirmar estos rangos y la base química con el equipo de biología.",
+            "Estimación provisional con pKa 9.25 (~25 °C); confirmar con temperatura y protocolo técnico.",
         )
     )
 
-    if amonio >= Decimal("0.5") and nitrito >= Decimal("0.5"):
-        lecturas.append(_lectura("Ciclo del nitrógeno", nitrito, "mg/L", "ROJO", "Amonio y nitrito altos simultáneamente.", "Suspender alimentación, recambiar agua y avisar al técnico."))
-    elif amonio >= Decimal("0.5") and nitrito < Decimal("0.5"):
-        lecturas.append(_lectura("Ciclo del nitrógeno", amonio, "mg/L", "AMARILLO", "Amonio alto con nitrito bajo.", "Alimentar poco y medir con mayor frecuencia."))
+    if amoniaco_total >= Decimal("0.5") and nitrito >= Decimal("0.5"):
+        lecturas.append(_lectura("Ciclo del nitrógeno", nitrito, "ppm", "ROJO", "Amoníaco total y nitrito altos simultáneamente.", "Suspender alimentación, recambiar agua y avisar al técnico."))
+    elif amoniaco_total >= Decimal("0.5") and nitrito < Decimal("0.5"):
+        lecturas.append(_lectura("Ciclo del nitrógeno", amoniaco_total, "ppm", "AMARILLO", "Amoníaco total alto con nitrito bajo.", "Alimentar poco y medir con mayor frecuencia."))
 
     estado = max(lecturas, key=lambda item: PRIORIDAD[item["estado"]])["estado"]
     return {"estado": estado, "lecturas": lecturas, "umbrales_provisionales": True}

@@ -42,9 +42,9 @@
 
             <section class="mt-9 border-t border-stone-100 pt-8">
                 <label class="flex items-center gap-3 font-black text-brand-brown">{{ form.registrar_agua }} {{ form.registrar_agua.label }}</label>
-                <p class="mt-1 text-sm text-stone-500">Unidades provisionales en mg/L; quedan pendientes de validación biológica.</p>
+                <p class="mt-1 text-sm text-stone-500">Selecciona exactamente el color más cercano de la tarjeta. Se guarda un solo pH final aunque se utilicen las dos pruebas; nitrato, nitrito y amoníaco total se registran en ppm.</p>
                 <div id="water-fields" class="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                    {% for field in [form.ph, form.nitrato, form.nitrito, form.amonio] %}
+                    {% for field in [form.ph, form.nitrato, form.nitrito, form.amoniaco_total] %}
                     <div><label for="{{ field.id_for_label }}" class="text-sm font-bold text-brand-brown">{{ field.label }}</label>{{ field }}{{ field_errors(field) }}</div>
                     {% endfor %}
                 </div>

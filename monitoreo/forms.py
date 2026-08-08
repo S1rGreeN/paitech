@@ -1,8 +1,17 @@
+from decimal import Decimal
+
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.forms import BaseFormSet, formset_factory
 from django.utils import timezone
 
+from .calidad_agua import (
+    AMONIACO_TOTAL_VALORES,
+    NITRATO_VALORES,
+    NITRITO_VALORES,
+    PH_VALORES,
+    opciones_formulario,
+)
 from .models import JornadaRegistro
 
 INPUT_CLASS = (
@@ -52,10 +61,38 @@ class JornadaForm(forms.ModelForm):
         label="Incluir muestra biométrica",
         widget=forms.CheckboxInput(attrs={"class": CHECKBOX_CLASS}),
     )
-    ph = forms.DecimalField(required=False, min_value=0, max_value=14, max_digits=4, decimal_places=2, widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "step": "0.01"}))
-    nitrato = forms.DecimalField(required=False, min_value=0, max_digits=10, decimal_places=3, widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "step": "0.001"}))
-    nitrito = forms.DecimalField(required=False, min_value=0, max_digits=10, decimal_places=3, widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "step": "0.001"}))
-    amonio = forms.DecimalField(required=False, min_value=0, max_digits=10, decimal_places=3, widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "step": "0.001"}))
+    ph = forms.TypedChoiceField(
+        required=False,
+        coerce=Decimal,
+        empty_value=None,
+        choices=(("", "Selecciona el pH final"),) + opciones_formulario(PH_VALORES),
+        label="pH final (escala normal o alta)",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+    nitrato = forms.TypedChoiceField(
+        required=False,
+        coerce=Decimal,
+        empty_value=None,
+        choices=(("", "Selecciona una lectura"),) + opciones_formulario(NITRATO_VALORES),
+        label="Nitrato (NO₃⁻), ppm",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+    nitrito = forms.TypedChoiceField(
+        required=False,
+        coerce=Decimal,
+        empty_value=None,
+        choices=(("", "Selecciona una lectura"),) + opciones_formulario(NITRITO_VALORES),
+        label="Nitrito (NO₂⁻), ppm",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+    amoniaco_total = forms.TypedChoiceField(
+        required=False,
+        coerce=Decimal,
+        empty_value=None,
+        choices=(("", "Selecciona una lectura"),) + opciones_formulario(AMONIACO_TOTAL_VALORES),
+        label="Amoníaco total (NH₃/NH₄⁺), ppm",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
 
     class Meta:
         model = JornadaRegistro
@@ -82,7 +119,7 @@ class JornadaForm(forms.ModelForm):
         if not datos.get("registrar_agua") and not datos.get("registrar_biometria"):
             raise forms.ValidationError("Selecciona agua, biometría o ambos bloques.")
         if datos.get("registrar_agua"):
-            faltantes = [campo for campo in ("ph", "nitrato", "nitrito", "amonio") if datos.get(campo) is None]
+            faltantes = [campo for campo in ("ph", "nitrato", "nitrito", "amoniaco_total") if datos.get(campo) is None]
             if faltantes:
                 raise forms.ValidationError("Los cuatro parámetros de agua son obligatorios cuando incluyes ese bloque.")
         return datos
@@ -90,7 +127,7 @@ class JornadaForm(forms.ModelForm):
     def datos_agua(self):
         if not self.cleaned_data["registrar_agua"]:
             return None
-        return {campo: self.cleaned_data[campo] for campo in ("ph", "nitrato", "nitrito", "amonio")}
+        return {campo: self.cleaned_data[campo] for campo in ("ph", "nitrato", "nitrito", "amoniaco_total")}
 
 
 class ObservacionPezForm(forms.Form):

@@ -12,6 +12,12 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from .calidad_agua import (
+    validar_amoniaco_total_kit,
+    validar_nitrato_kit,
+    validar_nitrito_kit,
+    validar_ph_kit,
+)
 from .models import (
     Especie,
     JornadaRegistro,
@@ -38,7 +44,27 @@ class AguaSerializer(serializers.Serializer):
     ph = serializers.DecimalField(max_digits=4, decimal_places=2, min_value=0, max_value=14)
     nitrato = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=0)
     nitrito = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=0)
-    amonio = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=0)
+    amoniaco_total = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=0)
+
+    @staticmethod
+    def _validar(valor, validador):
+        try:
+            validador(valor)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages) from error
+        return valor
+
+    def validate_ph(self, valor):
+        return self._validar(valor, validar_ph_kit)
+
+    def validate_nitrato(self, valor):
+        return self._validar(valor, validar_nitrato_kit)
+
+    def validate_nitrito(self, valor):
+        return self._validar(valor, validar_nitrito_kit)
+
+    def validate_amoniaco_total(self, valor):
+        return self._validar(valor, validar_amoniaco_total_kit)
 
 
 class PezSerializer(serializers.Serializer):
@@ -132,7 +158,7 @@ def jornada_json(jornada, incluir_advertencia=True):
             "ph": str(agua_obj.ph),
             "nitrato": str(agua_obj.nitrato),
             "nitrito": str(agua_obj.nitrito),
-            "amonio": str(agua_obj.amonio),
+            "amoniaco_total": str(agua_obj.amoniaco_total),
         }
     try:
         peces_qs = jornada.muestra_biometrica.peces.all()

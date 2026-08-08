@@ -39,7 +39,7 @@ Ejemplo con agua y dos peces:
   "poblacion_estimada": 200,
   "observaciones": "Sin novedades",
   "dispositivo_id": "android-a1b2c3",
-  "agua": {"ph": "7.20", "nitrato": "10.000", "nitrito": "0.100", "amonio": "0.200"},
+  "agua": {"ph": "7.20", "nitrato": "10.000", "nitrito": "0.250", "amoniaco_total": "0.250"},
   "peces": [
     {"peso_gramos": "250.40", "talla_centimetros": "21.30"},
     {"peso_gramos": "246.10", "talla_centimetros": "20.90"}
@@ -48,6 +48,12 @@ Ejemplo con agua y dos peces:
 ```
 
 `agua` puede ser `null` y `peces` puede ser una lista vacía, pero no simultáneamente. `poblacion_estimada` siempre es obligatoria. La especie proviene de la piscina.
+
+El campo `ph` contiene un único resultado final aunque en campo se usen las
+pruebas de rango normal y alto. Los cuatro campos solo aceptan valores impresos
+en el API Freshwater Master Test Kit. `nitrato`, `nitrito` y
+`amoniaco_total` se expresan en ppm; este último representa la lectura conjunta
+rotulada por el kit como NH₃/NH₄⁺, no únicamente el ion amonio.
 
 Un `POST` repetido con el mismo UUID **y el mismo contenido** devuelve el registro
 existente sin duplicarlo. Si ese UUID ya existe con datos distintos o fue

@@ -1,6 +1,7 @@
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -17,6 +18,7 @@ from .models import (
     MovimientoPoblacion,
     Piscina,
 )
+from .semaforo import evaluar_agua
 from .services import calcular_poblacion_teorica, crear_jornada, crear_movimiento
 
 
@@ -47,7 +49,7 @@ class BasePaiPayTest(TestCase):
             "poblacion_estimada": 200,
             "observaciones": "Sin novedades",
             "dispositivo_id": "telefono-prueba",
-            "agua": {"ph": "7.20", "nitrato": "10.000", "nitrito": "0.100", "amonio": "0.200"},
+            "agua": {"ph": "7.20", "nitrato": "10.000", "nitrito": "0.250", "amoniaco_total": "0.250"},
             "peces": [],
         }
         datos.update(cambios)
@@ -88,10 +90,10 @@ class AutenticacionYWebTests(BasePaiPayTest):
                 "poblacion_estimada": "200",
                 "observaciones": "Solo agua",
                 "registrar_agua": "on",
-                "ph": "7.10",
-                "nitrato": "12.000",
-                "nitrito": "0.100",
-                "amonio": "0.200",
+                "ph": "7.2",
+                "nitrato": "10",
+                "nitrito": "0.25",
+                "amoniaco_total": "0.25",
                 "muestras-TOTAL_FORMS": "0",
                 "muestras-INITIAL_FORMS": "0",
                 "muestras-MIN_NUM_FORMS": "0",
@@ -101,7 +103,8 @@ class AutenticacionYWebTests(BasePaiPayTest):
         self.assertEqual(respuesta.status_code, 302)
         jornada = JornadaRegistro.objects.get()
         self.assertEqual(jornada.estado, JornadaRegistro.Estado.COMPLETA)
-        self.assertEqual(jornada.agua.ph, Decimal("7.10"))
+        self.assertEqual(jornada.agua.ph, Decimal("7.20"))
+        self.assertEqual(jornada.agua.amoniaco_total, Decimal("0.250"))
         self.assertFalse(hasattr(jornada, "muestra_biometrica"))
 
 
@@ -124,6 +127,33 @@ class JornadasApiTests(BasePaiPayTest):
         self.assertEqual(ambos.status_code, 201)
         vacia = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(agua=None, peces=[]), format="json")
         self.assertEqual(vacia.status_code, 400)
+
+    def test_agua_acepta_solo_lecturas_impresas_y_expone_amoniaco_total(self):
+        self.autenticar()
+        invalida = self.payload_jornada()
+        invalida["agua"]["ph"] = "7.30"
+
+        rechazada = self.api.post(
+            reverse("monitoreo:api_jornadas"), invalida, format="json"
+        )
+
+        self.assertEqual(rechazada.status_code, 400)
+        self.assertIn("ph", rechazada.data["agua"])
+        contrato_antiguo = self.payload_jornada()
+        contrato_antiguo["agua"]["amonio"] = contrato_antiguo["agua"].pop(
+            "amoniaco_total"
+        )
+        clave_antigua = self.api.post(
+            reverse("monitoreo:api_jornadas"), contrato_antiguo, format="json"
+        )
+        self.assertEqual(clave_antigua.status_code, 400)
+        self.assertIn("amoniaco_total", clave_antigua.data["agua"])
+        valida = self.api.post(
+            reverse("monitoreo:api_jornadas"), self.payload_jornada(), format="json"
+        )
+        self.assertEqual(valida.status_code, 201)
+        self.assertIn("amoniaco_total", valida.data["agua"])
+        self.assertNotIn("amonio", valida.data["agua"])
 
     def test_observacion_sql_maliciosa_se_guarda_como_texto(self):
         self.autenticar()
@@ -190,7 +220,7 @@ class JornadasApiTests(BasePaiPayTest):
             piscina=self.piscina,
             capturada_en=timezone.now(),
             poblacion_estimada=200,
-            agua={"ph": Decimal("7.2"), "nitrato": Decimal("10"), "nitrito": Decimal("0.1"), "amonio": Decimal("0.2")},
+            agua={"ph": Decimal("7.2"), "nitrato": Decimal("10"), "nitrito": Decimal("0.25"), "amoniaco_total": Decimal("0.25")},
         )
         self.autenticar(self.otro)
         lista = self.api.get(reverse("monitoreo:api_jornadas"))
@@ -234,13 +264,39 @@ class JornadasApiTests(BasePaiPayTest):
 
 
 class SemaforoYPoblacionTests(BasePaiPayTest):
+    def test_semaforo_conserva_umbrales_sobre_las_lecturas_del_kit(self):
+        base = {
+            "ph": Decimal("7.2"),
+            "nitrato": Decimal("10"),
+            "nitrito": Decimal("0.25"),
+            "amoniaco_total": Decimal("0.25"),
+        }
+
+        self.assertEqual(evaluar_agua(SimpleNamespace(**base))["estado"], "VERDE")
+        nitrato_amarillo = {**base, "nitrato": Decimal("80")}
+        self.assertEqual(
+            evaluar_agua(SimpleNamespace(**nitrato_amarillo))["estado"], "AMARILLO"
+        )
+        nitrito_rojo = {**base, "nitrito": Decimal("2")}
+        self.assertEqual(
+            evaluar_agua(SimpleNamespace(**nitrito_rojo))["estado"], "ROJO"
+        )
+        nh3_estimado_rojo = {
+            **base,
+            "ph": Decimal("8.8"),
+            "amoniaco_total": Decimal("0.25"),
+        }
+        self.assertEqual(
+            evaluar_agua(SimpleNamespace(**nh3_estimado_rojo))["estado"], "ROJO"
+        )
+
     def test_semaforo_usa_ultima_jornada_comunitaria_sin_importar_autor(self):
         crear_jornada(
             actor=self.otro,
             piscina=self.piscina,
             capturada_en=timezone.now(),
             poblacion_estimada=190,
-            agua={"ph": Decimal("5.5"), "nitrato": Decimal("10"), "nitrito": Decimal("0.1"), "amonio": Decimal("0.2")},
+            agua={"ph": Decimal("8.8"), "nitrato": Decimal("10"), "nitrito": Decimal("0.25"), "amoniaco_total": Decimal("8")},
         )
         self.autenticar(self.user)
         respuesta = self.api.get(reverse("monitoreo:api_semaforos"))
@@ -255,7 +311,7 @@ class SemaforoYPoblacionTests(BasePaiPayTest):
             piscina=self.piscina,
             capturada_en=instante,
             poblacion_estimada=200,
-            agua={"ph": Decimal("7.2"), "nitrato": Decimal("10"), "nitrito": Decimal("0.1"), "amonio": Decimal("0.2")},
+            agua={"ph": Decimal("7.2"), "nitrato": Decimal("10"), "nitrito": Decimal("0.25"), "amoniaco_total": Decimal("0.25")},
         )
         crear_movimiento(
             actor=self.user,

@@ -96,7 +96,7 @@
                         <th class="px-6 py-4 font-bold sm:px-8">Fecha</th>
                         <th class="px-6 py-4 font-bold">pH</th>
                         <th class="px-6 py-4 font-bold">Nitrato</th>
-                        <th class="px-6 py-4 font-bold">Amonio</th>
+                        <th class="px-6 py-4 font-bold">Amoníaco total</th>
                         <th class="px-6 py-4 font-bold">Nitrito</th>
                         <th class="px-6 py-4 font-bold">Población</th>
                         <th class="px-6 py-4 font-bold">Muestras</th>
@@ -108,9 +108,9 @@
                     <tr class="transition hover:bg-lime-50/60">
                         <td class="whitespace-nowrap px-6 py-4 font-medium text-stone-600 sm:px-8">{{ registro.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
                         <td class="px-6 py-4"><span class="rounded-full bg-brand-green/15 px-3 py-1 font-bold text-brand-brown">{{ registro.ph if registro.ph is not none else '—' }}</span></td>
-                        <td class="px-6 py-4 text-stone-600">{% if registro.nitrato is not none %}{{ registro.nitrato }} mg/L{% else %}—{% endif %}</td>
-                        <td class="px-6 py-4 text-stone-600">{% if registro.amonio is not none %}{{ registro.amonio }} mg/L{% else %}—{% endif %}</td>
-                        <td class="px-6 py-4 text-stone-600">{% if registro.nitrito is not none %}{{ registro.nitrito }} mg/L{% else %}—{% endif %}</td>
+                        <td class="px-6 py-4 text-stone-600">{% if registro.nitrato is not none %}{{ registro.nitrato }} ppm{% else %}—{% endif %}</td>
+                        <td class="px-6 py-4 text-stone-600">{% if registro.amoniaco_total is not none %}{{ registro.amoniaco_total }} ppm{% else %}—{% endif %}</td>
+                        <td class="px-6 py-4 text-stone-600">{% if registro.nitrito is not none %}{{ registro.nitrito }} ppm{% else %}—{% endif %}</td>
                         <td class="px-6 py-4 font-semibold text-brand-brown">{{ registro.poblacion_estimada }}</td>
                         <td class="px-6 py-4 text-stone-600">{{ registro.muestras_peces.all()|length }}</td>
                         <td class="px-6 py-4 text-right"><a href="{{ url('monitoreo:registro_detalle', registro_id=registro.id) }}" class="font-bold text-brand-green hover:text-brand-brown">Ver</a></td>

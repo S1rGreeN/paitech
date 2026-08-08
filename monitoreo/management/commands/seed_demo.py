@@ -67,7 +67,7 @@ class Command(BaseCommand):
                 poblacion_estimada=1250,
                 observaciones="Actividad normal durante la alimentación.",
                 fuente=JornadaRegistro.Fuente.WEB,
-                agua={"ph": Decimal("7.20"), "nitrato": Decimal("18.500"), "nitrito": Decimal("0.080"), "amonio": Decimal("0.120")},
+                agua={"ph": Decimal("7.20"), "nitrato": Decimal("20"), "nitrito": Decimal("0.25"), "amoniaco_total": Decimal("0.25")},
                 peces=[
                     {"peso_gramos": Decimal("315.40"), "talla_centimetros": Decimal("23.80")},
                     {"peso_gramos": Decimal("328.10"), "talla_centimetros": Decimal("24.20")},

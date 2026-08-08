@@ -57,7 +57,7 @@ def snapshot_jornada(jornada):
             "ph": agua.ph,
             "nitrato": agua.nitrato,
             "nitrito": agua.nitrito,
-            "amonio": agua.amonio,
+            "amoniaco_total": agua.amoniaco_total,
         }
     try:
         muestra = jornada.muestra_biometrica
@@ -123,7 +123,7 @@ def _jornada_equivale_a_reintento(existente, *, piscina, capturada_en,
     if (agua_existente is None) != (agua is None):
         return False
     if agua_existente is not None:
-        for campo in ("ph", "nitrato", "nitrito", "amonio"):
+        for campo in ("ph", "nitrato", "nitrito", "amoniaco_total"):
             if getattr(agua_existente, campo) != agua[campo]:
                 return False
 

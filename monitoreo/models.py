@@ -7,6 +7,13 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+from .calidad_agua import (
+    validar_amoniaco_total_kit,
+    validar_nitrato_kit,
+    validar_nitrito_kit,
+    validar_ph_kit,
+)
+
 
 class Comunidad(models.Model):
     codigo = models.SlugField(max_length=40, unique=True)
@@ -238,9 +245,9 @@ class JornadaRegistro(models.Model):
             return None
 
     @property
-    def amonio(self):
+    def amoniaco_total(self):
         try:
-            return self.agua.amonio
+            return self.agua.amoniaco_total
         except MedicionAgua.DoesNotExist:
             return None
 
@@ -261,26 +268,28 @@ class MedicionAgua(models.Model):
     ph = models.DecimalField(
         max_digits=4,
         decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(14)],
+        validators=[MinValueValidator(0), MaxValueValidator(14), validar_ph_kit],
         verbose_name="pH",
+        help_text="Valor final de una de las dos escalas de pH del kit; se guarda un solo pH.",
     )
     nitrato = models.DecimalField(
         max_digits=10,
         decimal_places=3,
-        validators=[MinValueValidator(0)],
-        help_text="Unidad provisional: mg/L.",
+        validators=[MinValueValidator(0), validar_nitrato_kit],
+        help_text="Nitrato (NO₃⁻), en ppm.",
     )
     nitrito = models.DecimalField(
         max_digits=10,
         decimal_places=3,
-        validators=[MinValueValidator(0)],
-        help_text="Unidad provisional: mg/L.",
+        validators=[MinValueValidator(0), validar_nitrito_kit],
+        help_text="Nitrito (NO₂⁻), en ppm.",
     )
-    amonio = models.DecimalField(
+    amoniaco_total = models.DecimalField(
         max_digits=10,
         decimal_places=3,
-        validators=[MinValueValidator(0)],
-        help_text="Unidad provisional: mg/L.",
+        validators=[MinValueValidator(0), validar_amoniaco_total_kit],
+        verbose_name="amoníaco total",
+        help_text="Amoníaco total (NH₃/NH₄⁺), en ppm.",
     )
 
     class Meta:
