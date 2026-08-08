@@ -1,81 +1,242 @@
+import uuid
+from datetime import timedelta
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
+from rest_framework.test import APIClient
 
-from .models import MuestraPez, Piscina, Registro
+from .models import (
+    AuditoriaCambio,
+    Comunidad,
+    Especie,
+    JornadaRegistro,
+    MovimientoPoblacion,
+    Piscina,
+)
+from .services import calcular_poblacion_teorica, crear_jornada, crear_movimiento
 
 
-class PaiPayTechTests(TestCase):
+class BasePaiPayTest(TestCase):
     def setUp(self):
-        self.user = get_user_model().objects.create_user(
-            username="tester",
-            email="tester@example.com",
-            password="ClaveSegura123!",
-        )
+        User = get_user_model()
+        self.user = User.objects.create_user(email="ana@example.com", password="ClaveSegura123!", first_name="Ana")
+        self.otro = User.objects.create_user(email="luis@example.com", password="ClaveSegura123!", first_name="Luis")
+        self.comunidad = self.user.perfil_acuicultor.comunidad
+        self.especie = Especie.objects.create(nombre_comun="Vieja Azul", nombre_cientifico="Andinoacara rivulatus")
         self.piscina = Piscina.objects.create(
-            nombre="Piscina de prueba",
-            codigo="TEST-01",
+            comunidad=self.comunidad,
+            especie=self.especie,
+            nombre="Piscina 1",
+            codigo="P-01",
             tipo=Piscina.Tipo.PECES,
         )
+        self.api = APIClient()
 
-    def test_usuario_recibe_perfil_y_acceso_a_piscina(self):
-        self.assertEqual(self.user.perfil_acuicultor.nickname, "tester")
-        self.assertTrue(self.piscina.acuicultores.filter(pk=self.user.perfil_acuicultor.pk).exists())
+    def autenticar(self, usuario=None):
+        self.api.force_authenticate(user=usuario or self.user)
 
-    def test_dashboard_requiere_inicio_de_sesion(self):
-        response = self.client.get(reverse("monitoreo:dashboard"))
-        self.assertEqual(response.status_code, 302)
-        self.assertIn(reverse("monitoreo:login"), response.url)
+    def payload_jornada(self, **cambios):
+        datos = {
+            "id": str(uuid.uuid4()),
+            "piscina": str(self.piscina.id),
+            "capturada_en": timezone.now().isoformat(),
+            "poblacion_estimada": 200,
+            "observaciones": "Sin novedades",
+            "dispositivo_id": "telefono-prueba",
+            "agua": {"ph": "7.20", "nitrato": "10.000", "nitrito": "0.100", "amonio": "0.200"},
+            "peces": [],
+        }
+        datos.update(cambios)
+        return datos
 
 
-    def test_paginas_principales_renderizan(self):
-        self.client.login(username="tester", password="ClaveSegura123!")
-        self.assertEqual(self.client.get(reverse("monitoreo:dashboard")).status_code, 200)
-        self.assertEqual(
-            self.client.get(reverse("monitoreo:piscina_detalle", args=[self.piscina.id])).status_code,
-            200,
-        )
-        self.assertEqual(
-            self.client.get(reverse("monitoreo:registro_nuevo", args=[self.piscina.id])).status_code,
-            200,
-        )
+class AutenticacionYWebTests(BasePaiPayTest):
+    def test_login_web_y_api_usan_correo(self):
+        self.assertTrue(self.client.login(username="ana@example.com", password="ClaveSegura123!"))
+        respuesta = self.api.post(reverse("monitoreo:api_login"), {"email": "ANA@example.com", "password": "ClaveSegura123!"}, format="json")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("token", respuesta.data)
 
-    def test_crear_registro_con_muestra(self):
-        self.client.login(username="tester", password="ClaveSegura123!")
-        response = self.client.post(
+    def test_dashboard_requiere_login_y_muestra_comunidad(self):
+        respuesta = self.client.get(reverse("monitoreo:dashboard"))
+        self.assertEqual(respuesta.status_code, 302)
+        self.client.force_login(self.otro)
+        respuesta = self.client.get(reverse("monitoreo:piscina_detalle", args=[self.piscina.id]))
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_web_crea_jornada_solo_agua(self):
+        self.client.force_login(self.user)
+        respuesta = self.client.post(
             reverse("monitoreo:registro_nuevo", args=[self.piscina.id]),
             {
-                "ph": "7.1",
-                "nitrato": "10.5",
-                "amonio": "0.2",
-                "nitrito": "0.1",
-                "poblacion_estimada": "800",
-                "observaciones": "Sin novedades",
-                "muestras-TOTAL_FORMS": "3",
+                "capturada_en": timezone.localtime().strftime("%Y-%m-%dT%H:%M"),
+                "poblacion_estimada": "200",
+                "observaciones": "Solo agua",
+                "registrar_agua": "on",
+                "ph": "7.10",
+                "nitrato": "12.000",
+                "nitrito": "0.100",
+                "amonio": "0.200",
+                "muestras-TOTAL_FORMS": "0",
                 "muestras-INITIAL_FORMS": "0",
-                "muestras-MIN_NUM_FORMS": "1",
-                "muestras-MAX_NUM_FORMS": "10",
-                "muestras-0-especie": "Tilapia",
-                "muestras-0-peso_gramos": "250.4",
-                "muestras-0-talla_centimetros": "21.3",
-                "muestras-1-especie": "",
-                "muestras-1-peso_gramos": "",
-                "muestras-1-talla_centimetros": "",
-                "muestras-2-especie": "",
-                "muestras-2-peso_gramos": "",
-                "muestras-2-talla_centimetros": "",
+                "muestras-MIN_NUM_FORMS": "0",
+                "muestras-MAX_NUM_FORMS": "500",
             },
         )
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(Registro.objects.count(), 1)
-        self.assertEqual(MuestraPez.objects.count(), 1)
+        self.assertEqual(respuesta.status_code, 302)
+        jornada = JornadaRegistro.objects.get()
+        self.assertEqual(jornada.estado, JornadaRegistro.Estado.COMPLETA)
+        self.assertEqual(jornada.agua.ph, Decimal("7.10"))
+        self.assertFalse(hasattr(jornada, "muestra_biometrica"))
 
-    def test_lombrices_no_permite_registro_en_este_sprint(self):
-        lombrices = Piscina.objects.create(
-            nombre="Lombrices",
-            codigo="L-01",
-            tipo=Piscina.Tipo.LOMBRICES,
+
+class JornadasApiTests(BasePaiPayTest):
+    def test_acepta_agua_biometria_o_ambos_y_rechaza_jornada_vacia(self):
+        self.autenticar()
+        agua = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(), format="json")
+        self.assertEqual(agua.status_code, 201)
+        biometria = self.api.post(
+            reverse("monitoreo:api_jornadas"),
+            self.payload_jornada(agua=None, peces=[{"peso_gramos": "250.40", "talla_centimetros": "21.30"}]),
+            format="json",
         )
-        self.client.login(username="tester", password="ClaveSegura123!")
-        response = self.client.get(reverse("monitoreo:registro_nuevo", args=[lombrices.id]))
-        self.assertRedirects(response, reverse("monitoreo:piscina_detalle", args=[lombrices.id]))
+        self.assertEqual(biometria.status_code, 201)
+        ambos = self.api.post(
+            reverse("monitoreo:api_jornadas"),
+            self.payload_jornada(peces=[{"peso_gramos": "260.00", "talla_centimetros": "22.00"}]),
+            format="json",
+        )
+        self.assertEqual(ambos.status_code, 201)
+        vacia = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(agua=None, peces=[]), format="json")
+        self.assertEqual(vacia.status_code, 400)
+
+    def test_uuid_hace_reintento_idempotente(self):
+        self.autenticar()
+        payload = self.payload_jornada()
+        primera = self.api.post(reverse("monitoreo:api_jornadas"), payload, format="json")
+        segunda = self.api.post(reverse("monitoreo:api_jornadas"), payload, format="json")
+        self.assertEqual(primera.status_code, 201)
+        self.assertEqual(segunda.status_code, 200)
+        self.assertEqual(JornadaRegistro.objects.count(), 1)
+        self.assertEqual(AuditoriaCambio.objects.count(), 1)
+
+    def test_correccion_incrementa_version_y_version_antigua_devuelve_409(self):
+        self.autenticar()
+        creada = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(), format="json")
+        jornada_id = creada.data["id"]
+        payload = self.payload_jornada(id=jornada_id, version=1, poblacion_estimada=187, motivo_correccion="Conteo corregido")
+        corregida = self.api.put(reverse("monitoreo:api_jornada_detalle", args=[jornada_id]), payload, format="json")
+        self.assertEqual(corregida.status_code, 200)
+        self.assertEqual(corregida.data["version"], 2)
+        conflicto = self.api.put(reverse("monitoreo:api_jornada_detalle", args=[jornada_id]), payload, format="json")
+        self.assertEqual(conflicto.status_code, 409)
+        self.assertEqual(AuditoriaCambio.objects.filter(entidad_uuid=jornada_id).count(), 2)
+
+    def test_otro_usuario_no_ve_historial_api_ajeno_ni_puede_modificarlo(self):
+        jornada, _ = crear_jornada(
+            actor=self.user,
+            piscina=self.piscina,
+            capturada_en=timezone.now(),
+            poblacion_estimada=200,
+            agua={"ph": Decimal("7.2"), "nitrato": Decimal("10"), "nitrito": Decimal("0.1"), "amonio": Decimal("0.2")},
+        )
+        self.autenticar(self.otro)
+        lista = self.api.get(reverse("monitoreo:api_jornadas"))
+        self.assertEqual(lista.data, [])
+        detalle = self.api.get(reverse("monitoreo:api_jornada_detalle", args=[jornada.id]))
+        self.assertEqual(detalle.status_code, 404)
+
+    def test_anular_es_logico_y_auditado(self):
+        self.autenticar()
+        creada = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(), format="json")
+        respuesta = self.api.post(
+            reverse("monitoreo:api_jornada_anular", args=[creada.data["id"]]),
+            {"version": 1, "motivo": "Medición ingresada en la piscina equivocada"},
+            format="json",
+        )
+        self.assertEqual(respuesta.status_code, 200)
+        jornada = JornadaRegistro.objects.get(pk=creada.data["id"])
+        self.assertEqual(jornada.estado, JornadaRegistro.Estado.ANULADA)
+        self.assertTrue(JornadaRegistro.objects.filter(pk=jornada.id).exists())
+        self.assertEqual(AuditoriaCambio.objects.filter(entidad_uuid=jornada.id).count(), 2)
+
+
+class SemaforoYPoblacionTests(BasePaiPayTest):
+    def test_semaforo_usa_ultima_jornada_comunitaria_sin_importar_autor(self):
+        crear_jornada(
+            actor=self.otro,
+            piscina=self.piscina,
+            capturada_en=timezone.now(),
+            poblacion_estimada=190,
+            agua={"ph": Decimal("5.5"), "nitrato": Decimal("10"), "nitrito": Decimal("0.1"), "amonio": Decimal("0.2")},
+        )
+        self.autenticar(self.user)
+        respuesta = self.api.get(reverse("monitoreo:api_semaforos"))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.data[0]["semaforo"]["estado"], "ROJO")
+        self.assertEqual(respuesta.data[0]["jornada"]["autor"]["correo"], self.otro.email)
+
+    def test_poblacion_teorica_aplica_movimientos_y_no_infiere_muertes(self):
+        instante = timezone.now() - timedelta(days=2)
+        crear_jornada(
+            actor=self.user,
+            piscina=self.piscina,
+            capturada_en=instante,
+            poblacion_estimada=200,
+            agua={"ph": Decimal("7.2"), "nitrato": Decimal("10"), "nitrito": Decimal("0.1"), "amonio": Decimal("0.2")},
+        )
+        crear_movimiento(
+            actor=self.user,
+            tipo=MovimientoPoblacion.Tipo.MORTALIDAD,
+            cantidad=13,
+            ocurrido_en=instante + timedelta(days=1),
+            piscina_origen=self.piscina,
+        )
+        self.assertEqual(calcular_poblacion_teorica(self.piscina), 187)
+        self.assertEqual(MovimientoPoblacion.objects.count(), 1)
+
+    def test_especie_de_piscina_no_puede_cambiar(self):
+        otra = Especie.objects.create(nombre_comun="Tilapia")
+        self.piscina.especie = otra
+        with self.assertRaises(ValidationError):
+            self.piscina.full_clean()
+
+
+class MovimientosApiTests(BasePaiPayTest):
+    def test_movimiento_se_puede_corregir_y_anular_sin_borrarlo(self):
+        self.autenticar()
+        movimiento_id = str(uuid.uuid4())
+        base = {
+            "id": movimiento_id,
+            "tipo": "MORTALIDAD",
+            "cantidad": 13,
+            "piscina_origen": str(self.piscina.id),
+            "piscina_destino": None,
+            "ocurrido_en": timezone.now().isoformat(),
+            "observaciones": "Conteo inicial",
+        }
+        creado = self.api.post(reverse("monitoreo:api_movimientos"), base, format="json")
+        self.assertEqual(creado.status_code, 201)
+        base.update({"version": 1, "cantidad": 12, "motivo_correccion": "Reconteo"})
+        corregido = self.api.put(reverse("monitoreo:api_movimiento_detalle", args=[movimiento_id]), base, format="json")
+        self.assertEqual(corregido.status_code, 200)
+        self.assertEqual(corregido.data["version"], 2)
+        anulado = self.api.post(
+            reverse("monitoreo:api_movimiento_anular", args=[movimiento_id]),
+            {"version": 2, "motivo": "Movimiento duplicado"},
+            format="json",
+        )
+        self.assertEqual(anulado.status_code, 200)
+        movimiento = MovimientoPoblacion.objects.get(pk=movimiento_id)
+        self.assertEqual(movimiento.estado, MovimientoPoblacion.Estado.ANULADO)
+        self.assertEqual(movimiento.version, 3)
+        self.assertEqual(AuditoriaCambio.objects.filter(entidad_uuid=movimiento_id).count(), 3)
+
+    def test_salud_no_requiere_token(self):
+        respuesta = self.api.get(reverse("monitoreo:api_health"))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.data["database"], "ok")

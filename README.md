@@ -1,60 +1,58 @@
-# PaiPayTech
+# PaiPayTech Django
 
-MVP en Django para registrar y visualizar mediciones de piscinas acuícolas de Santa Lucía PaiPay.
+Backend, web comunitaria y API REST del sistema de monitoreo acuícola de Paipayales.
 
-## Funcionalidades
+## Alcance v1.4
 
-- Login y sesiones con Django.
-- Perfil de acuicultor.
-- Piscina de peces con historial y nuevos registros.
-- Datos de pH, nitrato, amonio, nitrito y población estimada.
-- Múltiples muestras de peces por registro: especie, peso y talla.
-- Piscina de lombrices visible como funcionalidad del siguiente sprint.
-- SQLite 3 local y configuración lista para Neon PostgreSQL.
-- Templates Jinja2 con Tailwind CSS y paleta oficial PaiPay.
-- Vista previa estática en `docs/` para GitHub Pages.
-- Preparación para Vercel.
-- Integración continua con GitHub Actions.
+- Usuarios administrados en Django e inicio de sesión por correo.
+- Comunidad, especies y piscinas; una especie permanente por piscina de peces.
+- Jornadas con agua, biometría o ambos bloques y población estimada obligatoria.
+- Peces anónimos con peso en gramos y longitud total en centímetros.
+- Movimientos explícitos de población y cálculo de población teórica.
+- Correcciones con versión optimista y anulaciones lógicas auditadas.
+- API para Android con UUID idempotentes y semáforo comunitario.
+- Lombricultura visible como “Próximamente”; laboratorio fuera de v1.4.
+- Neon PostgreSQL como base compartida y Railway como destino de despliegue.
 
-## Inicio rápido en Windows
+El contrato móvil está documentado en [API.md](API.md) y las decisiones generales en `../decisiones.md`.
+
+## Desarrollo local en Windows
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
 ```
 
-Abre `http://127.0.0.1:8000/`.
+La v1.4 usa `db_v14.sqlite3`. El antiguo `db.sqlite3` no se modifica y queda como respaldo del prototipo.
 
-Usuario demo:
-
-```text
-acuicultor / ${PAIPAY_ACUICULTOR_PASSWORD}
-```
-
-Administrador local:
+Credenciales de demostración:
 
 ```text
-admin / ${PAIPAY_ADMIN_PASSWORD}
+acuicultor@paipay.local / ${PAIPAY_ACUICULTOR_PASSWORD}
+admin@paipay.local / ${PAIPAY_ADMIN_PASSWORD}
 ```
 
-## Pruebas
+## Verificación
 
 ```powershell
-python manage.py test
+python manage.py makemigrations --check --dry-run
 python manage.py check
+python manage.py test
+python manage.py collectstatic --noinput
 ```
 
-## Documentación
+## Railway + Neon
 
-- Guía completa: [`GUIA_COMPLETA.md`](GUIA_COMPLETA.md)
-- Modelo y diagramas: [`ARQUITECTURA.md`](ARQUITECTURA.md)
+1. Crear un servicio Railway desde este repositorio y seleccionar la rama `dev` durante las pruebas.
+2. Configurar `DATABASE_URL` con la cadena PostgreSQL de Neon.
+3. Configurar `SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS`.
+4. Mantener `SECURE_HSTS_SECONDS=0` durante la primera validación HTTPS; elevarlo solo cuando el dominio sea definitivo.
+5. Railway usará `railway.toml`: recolecta estáticos, ejecuta migraciones y levanta Gunicorn.
+6. Validar `GET /api/v1/health/` antes de apuntar Android al dominio.
 
-## Nota sobre GitHub Pages
-
-GitHub Pages solo ejecuta contenido estático. La carpeta `docs/` contiene una vista previa visual; el backend Django funciona localmente y, en el siguiente sprint, se despliega en Vercel con Neon.
+No se guardan credenciales de Neon en la aplicación Android. Django es la única capa que accede a la base central.

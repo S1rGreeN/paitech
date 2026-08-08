@@ -21,30 +21,35 @@ def env_list(name: str, default: str = "") -> list[str]:
 
 
 IS_VERCEL = os.getenv("VERCEL") == "1"
+IS_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT"))
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-local-only-change-me")
-DEBUG = env_bool("DEBUG", not IS_VERCEL)
+DEBUG = env_bool("DEBUG", not (IS_VERCEL or IS_RAILWAY))
 
-if IS_VERCEL and SECRET_KEY == "django-insecure-local-only-change-me":
-    raise ImproperlyConfigured("Define SECRET_KEY en las variables de entorno de Vercel.")
+if not DEBUG and SECRET_KEY == "django-insecure-local-only-change-me":
+    raise ImproperlyConfigured("Define SECRET_KEY con un valor seguro antes de desplegar.")
 
 ALLOWED_HOSTS = env_list(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,.vercel.app" if DEBUG else ".vercel.app",
+    "localhost,127.0.0.1,.up.railway.app,.vercel.app",
 )
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "")
 
 INSTALLED_APPS = [
+    "cuentas.apps.CuentasConfig",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "rest_framework",
+    "rest_framework.authtoken",
     "monitoreo.apps.MonitoreoConfig",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -82,8 +87,8 @@ WSGI_APPLICATION = "paipaytech.wsgi.application"
 ASGI_APPLICATION = "paipaytech.asgi.application"
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-if IS_VERCEL and not DATABASE_URL:
-    raise ImproperlyConfigured("Define DATABASE_URL con la conexión de Neon antes de desplegar en Vercel.")
+if (IS_VERCEL or IS_RAILWAY) and not DATABASE_URL:
+    raise ImproperlyConfigured("Define DATABASE_URL con la conexión de Neon antes de desplegar.")
 
 if DATABASE_URL:
     DATABASES = {
@@ -99,7 +104,9 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            # v1.4 usa un esquema nuevo. El archivo db.sqlite3 del prototipo se
+            # conserva sin alterarlo para que la reconstrucción sea reversible.
+            "NAME": BASE_DIR / "db_v14.sqlite3",
         }
     }
 
@@ -124,14 +131,27 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
     },
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+AUTH_USER_MODEL = "cuentas.Usuario"
 LOGIN_URL = "monitoreo:login"
 LOGIN_REDIRECT_URL = "monitoreo:dashboard"
 LOGOUT_REDIRECT_URL = "monitoreo:login"
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+}
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -139,3 +159,7 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
+    SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+    SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0

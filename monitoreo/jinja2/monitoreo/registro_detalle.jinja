@@ -28,7 +28,7 @@
             </div>
         </div>
 
-        <div class="grid gap-4 p-6 sm:grid-cols-2 sm:p-8 lg:grid-cols-5">
+        {% if registro.ph is not none %}<div class="grid gap-4 p-6 sm:grid-cols-2 sm:p-8 lg:grid-cols-5">
             <article class="rounded-3xl bg-lime-50 p-5 lg:col-span-1">
                 <p class="text-sm font-bold text-stone-500">pH</p>
                 <p class="mt-2 text-3xl font-black text-brand-brown">{{ registro.ph }}</p>
@@ -54,7 +54,7 @@
                 <p class="mt-2 text-2xl font-black text-brand-brown">{{ registro.poblacion_estimada }}</p>
                 <p class="mt-2 text-xs text-stone-400">peces estimados</p>
             </article>
-        </div>
+        </div>{% else %}<div class="p-8 text-stone-500">Esta jornada no contiene una medición de agua.</div>{% endif %}
     </div>
 </section>
 
@@ -69,7 +69,6 @@
                 <thead class="bg-stone-50 text-xs uppercase tracking-[0.11em] text-stone-500">
                     <tr>
                         <th class="px-6 py-4 font-bold sm:px-8">#</th>
-                        <th class="px-6 py-4 font-bold">Especie</th>
                         <th class="px-6 py-4 font-bold">Peso</th>
                         <th class="px-6 py-4 font-bold">Talla</th>
                     </tr>
@@ -78,12 +77,11 @@
                     {% for muestra in registro.muestras_peces.all() %}
                     <tr class="hover:bg-lime-50/60">
                         <td class="px-6 py-4 font-bold text-stone-400 sm:px-8">{{ loop.index }}</td>
-                        <td class="px-6 py-4 font-bold text-brand-brown">{{ muestra.especie }}</td>
                         <td class="px-6 py-4 text-stone-600">{{ muestra.peso_gramos }} g</td>
                         <td class="px-6 py-4 text-stone-600">{{ muestra.talla_centimetros }} cm</td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="4" class="px-6 py-12 text-center text-stone-500">Este registro no contiene muestras.</td></tr>
+                    <tr><td colspan="3" class="px-6 py-12 text-center text-stone-500">Este registro no contiene muestras.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

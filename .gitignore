@@ -21,6 +21,7 @@ htmlcov/
 
 # Django
 /db.sqlite3
+/db_v14.sqlite3
 /staticfiles/
 /media/
 *.log
@@ -31,7 +32,7 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Vercel
+# Plataformas de despliegue
 .vercel/
 
 # Node/Tailwind si se compila más adelante

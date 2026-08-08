@@ -1,14 +1,42 @@
 from django.urls import path
 
 from . import views
+from .api import (
+    EspeciesApiView,
+    HealthApiView,
+    JornadaAnularApiView,
+    JornadaDetalleApiView,
+    JornadasApiView,
+    LoginApiView,
+    LogoutApiView,
+    MeApiView,
+    MovimientoAnularApiView,
+    MovimientoDetalleApiView,
+    MovimientosApiView,
+    PiscinasApiView,
+    SemaforosApiView,
+)
 
 app_name = "monitoreo"
 
 urlpatterns = [
+    path("api/v1/health/", HealthApiView.as_view(), name="api_health"),
+    path("api/v1/auth/login/", LoginApiView.as_view(), name="api_login"),
+    path("api/v1/auth/logout/", LogoutApiView.as_view(), name="api_logout"),
+    path("api/v1/auth/me/", MeApiView.as_view(), name="api_me"),
+    path("api/v1/catalogos/especies/", EspeciesApiView.as_view(), name="api_especies"),
+    path("api/v1/catalogos/piscinas/", PiscinasApiView.as_view(), name="api_piscinas"),
+    path("api/v1/jornadas/", JornadasApiView.as_view(), name="api_jornadas"),
+    path("api/v1/jornadas/<uuid:jornada_id>/", JornadaDetalleApiView.as_view(), name="api_jornada_detalle"),
+    path("api/v1/jornadas/<uuid:jornada_id>/anular/", JornadaAnularApiView.as_view(), name="api_jornada_anular"),
+    path("api/v1/movimientos/", MovimientosApiView.as_view(), name="api_movimientos"),
+    path("api/v1/movimientos/<uuid:movimiento_id>/", MovimientoDetalleApiView.as_view(), name="api_movimiento_detalle"),
+    path("api/v1/movimientos/<uuid:movimiento_id>/anular/", MovimientoAnularApiView.as_view(), name="api_movimiento_anular"),
+    path("api/v1/semaforos/", SemaforosApiView.as_view(), name="api_semaforos"),
     path("login/", views.login_view, name="login"),
     path("logout/", views.logout_view, name="logout"),
     path("", views.dashboard, name="dashboard"),
-    path("piscinas/<int:piscina_id>/", views.piscina_detalle, name="piscina_detalle"),
-    path("piscinas/<int:piscina_id>/registros/nuevo/", views.registro_nuevo, name="registro_nuevo"),
-    path("registros/<int:registro_id>/", views.registro_detalle, name="registro_detalle"),
+    path("piscinas/<uuid:piscina_id>/", views.piscina_detalle, name="piscina_detalle"),
+    path("piscinas/<uuid:piscina_id>/registros/nuevo/", views.registro_nuevo, name="registro_nuevo"),
+    path("registros/<uuid:registro_id>/", views.registro_detalle, name="registro_detalle"),
 ]

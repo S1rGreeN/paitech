@@ -1,74 +1,38 @@
-# Arquitectura de PaiPayTech
-
-## Modelo de datos corregido
-
-```mermaid
-erDiagram
-    USER ||--|| ACUICULTOR : "tiene perfil"
-    ACUICULTOR }o--o{ PISCINA : "puede consultar"
-    PISCINA ||--o{ REGISTRO : "contiene"
-    ACUICULTOR ||--o{ REGISTRO : "crea"
-    REGISTRO ||--|{ MUESTRA_PEZ : "incluye"
-
-    ACUICULTOR {
-        bigint id PK
-        bigint user_id FK
-        string nickname UK
-        date fecha_nacimiento
-    }
-
-    PISCINA {
-        bigint id PK
-        string codigo UK
-        string nombre
-        string tipo
-        boolean activa
-        datetime fecha_creacion
-    }
-
-    REGISTRO {
-        bigint id PK
-        bigint piscina_id FK
-        bigint acuicultor_id FK
-        datetime fecha
-        decimal ph
-        decimal nitrato
-        decimal amonio
-        decimal nitrito
-        integer poblacion_estimada
-        text observaciones
-    }
-
-    MUESTRA_PEZ {
-        bigint id PK
-        bigint registro_id FK
-        string especie
-        decimal peso_gramos
-        decimal talla_centimetros
-    }
-```
-
-## Decisiones
-
-1. `User` de Django administra usuario, contraseña, correo, sesiones y permisos. `Acuicultor` amplía ese usuario con datos del dominio.
-2. La relación entre `Acuicultor` y `Piscina` permanece muchos-a-muchos. En este MVP las señales asignan cada piscina activa a todos los acuicultores.
-3. `Registro` representa una medición ambiental realizada en una piscina en una fecha concreta.
-4. `MuestraPez` es uno-a-muchos respecto de `Registro`, porque una medición puede tomar varias muestras de peces.
-5. La piscina de lombrices existe como `tipo='lombrices'`, pero su modelo de muestra no se inventa hasta conocer variables reales del negocio.
-
-## Flujo principal
+# Arquitectura de PaiPayTech v1.4
 
 ```mermaid
 flowchart LR
-    A[Login] --> B[Panel]
-    B --> C[Piscina de peces]
-    B --> D[Piscina de lombrices]
-    C --> E[Historial]
-    C --> F[Nuevo registro]
-    F --> G[Datos del agua]
-    F --> H[1 a 10 muestras de peces]
-    G --> I[Guardar]
-    H --> I
-    I --> J[Detalle del registro]
-    D --> K[Próximo sprint]
+    A["Android Java + Room"] -->|"HTTPS / Token"| B["Django REST Framework · Railway"]
+    W["Web Django"] --> B
+    B --> N["PostgreSQL · Neon"]
 ```
+
+Django concentra autenticación, permisos, validación, auditoría y semáforo. Android nunca accede directamente a Neon y usa Room como fuente local para trabajar sin conexión.
+
+```mermaid
+erDiagram
+    COMUNIDAD ||--o{ ACUICULTOR : agrupa
+    USUARIO ||--|| ACUICULTOR : posee
+    COMUNIDAD ||--o{ PISCINA : posee
+    ESPECIE ||--o{ PISCINA : "es permanente en"
+    PISCINA ||--o{ JORNADA_REGISTRO : recibe
+    ACUICULTOR ||--o{ JORNADA_REGISTRO : crea
+    JORNADA_REGISTRO ||--o| MEDICION_AGUA : incluye
+    JORNADA_REGISTRO ||--o| MUESTRA_BIOMETRICA : incluye
+    MUESTRA_BIOMETRICA ||--|{ OBSERVACION_PEZ : contiene
+    PISCINA ||--o{ MOVIMIENTO_POBLACION : afecta
+    ACUICULTOR ||--o{ MOVIMIENTO_POBLACION : registra
+    USUARIO ||--o{ AUDITORIA_CAMBIO : ejecuta
+```
+
+## Límites de lectura
+
+- Web: todos los miembros autenticados ven las jornadas de su comunidad.
+- Android: descarga el historial del usuario actual, no el historial comunitario completo.
+- Semáforo Android: descarga la última jornada comunitaria con agua de cada piscina.
+
+## Sincronización
+
+Android genera el UUID y guarda primero en Room. Solo una jornada local completa entra en la cola. `POST` es idempotente; `PUT` y anulación requieren la versión conocida. Un servidor adelantado devuelve `409`, y el dato local permanece pendiente hasta resolver el conflicto.
+
+Los borradores solo existen localmente. En el servidor no hay borrado físico de jornadas ni movimientos: las anulaciones incrementan versión y crean auditoría.

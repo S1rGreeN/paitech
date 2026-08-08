@@ -48,11 +48,11 @@
                     Panel
                 </a>
                 <div class="hidden text-right md:block">
-                    <p class="text-sm font-semibold text-brand-brown">{{ user.get_full_name() or user.username }}</p>
+                    <p class="text-sm font-semibold text-brand-brown">{{ user.get_full_name() or user.email }}</p>
                     <p class="text-xs text-stone-500">Acuicultor</p>
                 </div>
                 <div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand-green/15 text-sm font-bold text-brand-brown">
-                    {{ (user.first_name or user.username)[0]|upper }}
+                    {{ (user.first_name or user.email)[0]|upper }}
                 </div>
                 <form method="post" action="{{ url('monitoreo:logout') }}">
                     <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
