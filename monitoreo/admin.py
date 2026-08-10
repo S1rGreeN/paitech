@@ -32,6 +32,18 @@ class AcuicultorAdmin(admin.ModelAdmin):
     list_filter = ("comunidad", "rol", "activo")
     search_fields = ("nickname", "user__email")
 
+    def get_readonly_fields(self, request, obj=None):
+        if request.user.is_superuser:
+            return ()
+        # Evita que un administrador funcional se asigne el rol ADMINISTRADOR
+        # o mueva cuentas entre comunidades.
+        return ("user", "comunidad", "rol")
+
+    def has_delete_permission(self, request, obj=None):
+        if not request.user.is_superuser:
+            return False
+        return super().has_delete_permission(request, obj)
+
 
 @admin.register(Piscina)
 class PiscinaAdmin(admin.ModelAdmin):

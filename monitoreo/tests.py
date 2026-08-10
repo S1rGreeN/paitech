@@ -98,6 +98,20 @@ class AutenticacionYWebTests(BasePaiPayTest):
         respuesta = self.client.get(reverse("monitoreo:piscina_detalle", args=[self.piscina.id]))
         self.assertEqual(respuesta.status_code, 200)
 
+    def test_detalle_piscina_muestra_un_solo_acceso_a_nuevo_registro(self):
+        self.client.force_login(self.user)
+
+        respuesta = self.client.get(reverse("monitoreo:piscina_detalle", args=[self.piscina.id]))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Nuevo registro")
+        self.assertNotContains(respuesta, "Agregar medición")
+        self.assertContains(
+            respuesta,
+            reverse("monitoreo:registro_nuevo", args=[self.piscina.id]),
+            count=1,
+        )
+
     def test_web_crea_jornada_solo_agua(self):
         self.client.force_login(self.user)
         respuesta = self.client.post(
