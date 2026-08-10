@@ -41,6 +41,38 @@ python manage.py seed_demo --rotar-claves
 
 Las claves demo no se guardan en Git. Este comando es solo para desarrollo local.
 
+## Alta manual de usuarios operativos
+
+Las cuentas reales se crean de forma interactiva para que ninguna contraseña
+quede en el código, el historial de Git, los argumentos del proceso ni la salida
+de la terminal. El comando solicita la contraseña dos veces con entrada oculta y
+aplica la política de contraseñas de Django.
+
+Para la dotación inicial acordada, ejecutar desde una consola privada del
+servicio Django —localmente durante pruebas o en Railway después de migrar la
+base vacía de Neon—:
+
+```powershell
+# Una sola cuenta para mantenimiento técnico completo
+python manage.py crear_usuario_operativo --rol tecnico
+
+# Ejecutar tres veces, con correos distintos
+python manage.py crear_usuario_operativo --rol administrador
+
+# Ejecutar dos veces, con correos distintos
+python manage.py crear_usuario_operativo --rol acuicultor
+```
+
+El usuario `tecnico` es el único superusuario. Los administradores funcionales
+pueden gestionar cuentas ordinarias, especies y piscinas, y consultar jornadas
+y auditorías; no pueden convertirse en superusuarios, asignar grupos o permisos,
+eliminar datos ni modificar directamente cuentas privilegiadas. Los
+acuicultores no tienen acceso a Django Admin y usan la web/API comunitaria.
+
+No se deben usar correos ni contraseñas reales en ejemplos, migraciones,
+fixtures o scripts. Para cambiar una clave existente se usa el mecanismo seguro
+de Django desde una consola privada, no una sentencia SQL manual.
+
 ## Verificación
 
 ```powershell
