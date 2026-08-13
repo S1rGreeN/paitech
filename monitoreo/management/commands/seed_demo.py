@@ -1,8 +1,9 @@
 import secrets
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from monitoreo.models import Acuicultor, Comunidad, Especie, JornadaRegistro, Piscina
@@ -26,7 +27,7 @@ def generar_clave_demo(longitud=10):
 
 
 class Command(BaseCommand):
-    help = "Crea usuarios, catálogos y una jornada de demostración sin duplicarlos."
+    help = "Crea datos de demostración exclusivamente en SQLite con DEBUG=True."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -36,6 +37,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError("seed_demo está bloqueado cuando DEBUG=False.")
+        if settings.DATABASES["default"]["ENGINE"] != "django.db.backends.sqlite3":
+            raise CommandError("seed_demo solo puede ejecutarse sobre SQLite local; nunca sobre Neon/PostgreSQL.")
+
         comunidad, _ = Comunidad.objects.get_or_create(codigo="paipayales", defaults={"nombre": "Paipayales"})
         especie, _ = Especie.objects.get_or_create(
             nombre_comun="Vieja Azul",
@@ -80,18 +86,8 @@ class Command(BaseCommand):
                 "nombre": "Piscina 1 Paipayales",
                 "tipo": Piscina.Tipo.PECES,
                 "especie": especie,
-                "area_m2": Decimal("120.00"),
+                "area_m2": None,
                 "descripcion": "Calidad del agua, población y biometría de Vieja Azul.",
-            },
-        )
-        Piscina.objects.get_or_create(
-            comunidad=comunidad,
-            codigo="LOM-01",
-            defaults={
-                "nombre": "Lecho de Lombricultura 1",
-                "tipo": Piscina.Tipo.LOMBRICES,
-                "area_m2": Decimal("12.00"),
-                "descripcion": "Módulo visible como Próximamente.",
             },
         )
         if not piscina_peces.registros.exists():

@@ -39,7 +39,29 @@ Si las cuentas ya existen y necesitas claves nuevas, ejecuta:
 python manage.py seed_demo --rotar-claves
 ```
 
-Las claves demo no se guardan en Git. Este comando es solo para desarrollo local.
+Las claves demo no se guardan en Git. Este comando es solo para desarrollo
+local: se bloquea con `DEBUG=False` y también ante cualquier base que no sea
+SQLite. Nunca debe ejecutarse en Neon. Tampoco crea `LOM-01`.
+
+## Inicialización del catálogo real
+
+Después de ejecutar migraciones sobre una base Neon vacía, crear el catálogo
+mínimo confirmado con:
+
+```powershell
+python manage.py inicializar_catalogo_paipayales
+```
+
+El comando es idempotente y crea únicamente:
+
+- comunidad `Paipayales`;
+- especie Vieja Azul (*Andinoacara rivulatus*);
+- `P-01 · Piscina 1 Paipayales`, sin área ni descripción inventadas.
+
+No crea usuarios, contraseñas, jornadas ni `LOM-01`. Si encuentra esos códigos
+con una identidad incompatible, se detiene en vez de sobrescribir información.
+La tarjeta `Lombricultura · Próximamente` es estática y no representa una fila
+de la base de datos.
 
 ## Alta manual de usuarios operativos
 
@@ -90,6 +112,8 @@ python manage.py collectstatic --noinput
 3. Configurar `SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS`.
 4. Mantener `SECURE_HSTS_SECONDS=0` durante la primera validación HTTPS; elevarlo solo cuando el dominio sea definitivo.
 5. Railway usará `railway.toml`: recolecta estáticos, ejecuta migraciones y levanta Gunicorn.
-6. Validar `GET /api/v1/health/` antes de apuntar Android al dominio.
+6. Ejecutar `python manage.py inicializar_catalogo_paipayales` una sola vez desde una consola privada; repetirlo es seguro.
+7. Crear las seis cuentas reales con `crear_usuario_operativo`; no ejecutar `seed_demo`.
+8. Validar `GET /api/v1/health/` antes de apuntar Android al dominio.
 
 No se guardan credenciales de Neon en la aplicación Android. Django es la única capa que accede a la base central.

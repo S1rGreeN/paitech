@@ -65,6 +65,10 @@ Antes de exponer el servicio:
   política de referente activas;
 - ejecutar `python manage.py check --deploy` con las variables reales;
 - configurar `/api/v1/health/` como healthcheck de despliegue;
+- no ejecutar `seed_demo` en Railway/Neon; el propio comando se bloquea con
+  `DEBUG=False` o una base distinta de SQLite;
+- inicializar solo los catálogos confirmados mediante
+  `inicializar_catalogo_paipayales` y crear usuarios con entrada interactiva;
 - no activar HSTS prolongado hasta verificar primero dominio y HTTPS; después
   aumentarlo gradualmente;
 - rotar inmediatamente cualquier secreto que aparezca en capturas, logs, Git o

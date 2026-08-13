@@ -46,7 +46,11 @@ def logout_view(request):
 def dashboard(request):
     perfil = perfil_de(request.user)
     piscinas = list(
-        Piscina.objects.filter(comunidad=perfil.comunidad, activa=True)
+        Piscina.objects.filter(
+            comunidad=perfil.comunidad,
+            activa=True,
+            tipo=Piscina.Tipo.PECES,
+        )
         .select_related("especie")
         .annotate(total_registros=Count("registros", filter=Q(registros__estado=JornadaRegistro.Estado.COMPLETA)))
         .order_by("tipo", "nombre")

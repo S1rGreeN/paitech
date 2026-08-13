@@ -98,6 +98,34 @@ class AutenticacionYWebTests(BasePaiPayTest):
         respuesta = self.client.get(reverse("monitoreo:piscina_detalle", args=[self.piscina.id]))
         self.assertEqual(respuesta.status_code, 200)
 
+    def test_dashboard_muestra_lombricultura_sin_crear_lom_01(self):
+        self.client.force_login(self.user)
+
+        respuesta = self.client.get(reverse("monitoreo:dashboard"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, ">Lombricultura</h3>", html=False, count=1)
+        self.assertContains(respuesta, "Próximamente")
+        self.assertContains(respuesta, "No crea una piscina ni almacena datos")
+        self.assertFalse(Piscina.objects.filter(tipo=Piscina.Tipo.LOMBRICES).exists())
+        self.assertContains(respuesta, "Solo piscinas reales habilitadas")
+
+    def test_dashboard_no_expone_una_fila_antigua_de_lombricultura(self):
+        Piscina.objects.create(
+            comunidad=self.comunidad,
+            nombre="Lecho demo que no debe mostrarse",
+            codigo="LOM-01",
+            tipo=Piscina.Tipo.LOMBRICES,
+        )
+        self.client.force_login(self.user)
+
+        respuesta = self.client.get(reverse("monitoreo:dashboard"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, "Lecho demo que no debe mostrarse")
+        self.assertNotContains(respuesta, "LOM-01")
+        self.assertContains(respuesta, ">Lombricultura</h3>", html=False, count=1)
+
     def test_detalle_piscina_muestra_un_solo_acceso_a_nuevo_registro(self):
         self.client.force_login(self.user)
 
