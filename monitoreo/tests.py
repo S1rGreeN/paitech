@@ -69,7 +69,16 @@ class AutenticacionYWebTests(BasePaiPayTest):
 
     def test_login_web_y_api_usan_correo(self):
         self.assertTrue(self.client.login(username="ana@example.com", password="ClaveSegura123!"))
-        respuesta = self.api.post(reverse("monitoreo:api_login"), {"email": "ANA@example.com", "password": "ClaveSegura123!"}, format="json")
+        respuesta = self.api.post(
+            reverse("monitoreo:api_login"),
+            {
+                "email": "ANA@example.com",
+                "password": "ClaveSegura123!",
+                "dispositivo_id": "telefono-prueba-001",
+                "nombre_dispositivo": "Emulador",
+            },
+            format="json",
+        )
         self.assertEqual(respuesta.status_code, 200)
         self.assertIn("token", respuesta.data)
 

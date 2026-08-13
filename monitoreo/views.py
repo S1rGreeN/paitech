@@ -9,29 +9,73 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .forms import JornadaForm, LoginForm, ObservacionPezFormSet
+from cuentas.security import (
+    estado_bloqueo,
+    normalizar_email,
+    obtener_ip,
+    registrar_login_exitoso,
+    registrar_login_fallido,
+)
+
+from .forms import CambioClaveInicialForm, JornadaForm, LoginForm, ObservacionPezFormSet
 from .models import JornadaRegistro, MedicionAgua, Piscina
 from .services import crear_jornada, perfil_de
 
 
-def render_page(request: HttpRequest, template_name: str, context: dict | None = None) -> HttpResponse:
+def render_page(
+    request: HttpRequest,
+    template_name: str,
+    context: dict | None = None,
+    *,
+    status: int = 200,
+) -> HttpResponse:
     context = context or {}
     context.update({"request": request, "user": request.user, "messages": list(get_messages(request)), "csrf_token": get_token(request)})
-    return render(request, template_name, context)
+    return render(request, template_name, context, status=status)
 
 
 @require_http_methods(["GET", "POST"])
 def login_view(request):
     if request.user.is_authenticated:
         return redirect("monitoreo:dashboard")
+    email = normalizar_email(request.POST.get("username", ""))
+    ip = obtener_ip(request)
     form = LoginForm(request=request, data=request.POST or None)
+    if request.method == "POST" and estado_bloqueo(email, ip):
+        form.add_error(None, "No fue posible iniciar sesión. Intenta nuevamente más tarde.")
+        return render_page(request, "monitoreo/login.jinja", {"form": form}, status=429)
     if request.method == "POST" and form.is_valid():
-        login(request, form.get_user())
+        usuario = form.get_user()
+        registrar_login_exitoso(usuario, ip, canal="web")
+        login(request, usuario)
+        if usuario.debe_cambiar_clave:
+            return redirect("monitoreo:cambiar_clave_inicial")
         siguiente = request.GET.get("next")
         if siguiente and url_has_allowed_host_and_scheme(siguiente, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
             return redirect(siguiente)
         return redirect("monitoreo:dashboard")
+    if request.method == "POST":
+        registrar_login_fallido(email, ip)
     return render_page(request, "monitoreo/login.jinja", {"form": form})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def cambiar_clave_inicial(request):
+    form = CambioClaveInicialForm(user=request.user, data=request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        usuario = form.save(commit=False)
+        usuario.debe_cambiar_clave = False
+        usuario._cambio_clave_confirmado = True
+        usuario.save(update_fields=["password", "debe_cambiar_clave"])
+        logout(request)
+        messages.success(request, "Contraseña actualizada. Inicia sesión nuevamente.")
+        return redirect("monitoreo:login")
+    return render_page(
+        request,
+        "monitoreo/cambiar_clave_inicial.jinja",
+        {"form": form},
+    )
 
 
 @require_POST

@@ -9,11 +9,39 @@ Content-Type: application/json
 
 ## Autenticación
 
-- `POST auth/login/`: `{"email":"...","password":"..."}`.
+- `POST auth/login/`:
+
+  ```json
+  {
+    "email": "acuicultor@example.com",
+    "password": "...",
+    "dispositivo_id": "android-uuid-de-instalacion",
+    "nombre_dispositivo": "Google sdk_gphone64_x86_64"
+  }
+  ```
+
+  Devuelve una credencial con formato `<selector>.<secreto>`, `expira_en`,
+  `debe_cambiar_clave` y los datos del usuario. El nombre es informativo y el
+  identificador representa la instalación, no un identificador de hardware.
 - `POST auth/logout/`: revoca el token del dispositivo.
+- `POST auth/cambiar-clave/`: requiere una sesión autenticada y recibe
+  `password_actual`, `password_nuevo` y `confirmacion`. Al completarse revoca
+  todas las sesiones web y móviles de esa cuenta, por lo que se debe iniciar
+  sesión otra vez.
 - `GET auth/me/`: usuario, rol y comunidad.
 
-El primer ingreso de Android requiere conexión. El token se guarda cifrado para permitir trabajo offline posterior.
+Cada instalación tiene una sesión independiente y un usuario puede usar varios
+teléfonos simultáneamente. La vigencia es deslizante: cada solicitud autenticada
+renueva 30 días desde ese contacto con Django. Android también limita el uso
+offline a 30 días desde la última validación del servidor. Neon conserva SHA-256
+del secreto, no la credencial completa; Android la guarda cifrada con el
+Keystore del sistema.
+
+Una cuenta con contraseña temporal puede usar solamente `logout` y
+`cambiar-clave` hasta reemplazarla. Cinco fallos para la misma combinación de
+correo e IP dentro de 15 minutos producen un bloqueo de 15 minutos; la
+reincidencia produce uno de 60 minutos. Las respuestas son genéricas: `401` para
+un fallo normal y `429` cuando el acceso está bloqueado.
 
 ## Catálogos y semáforo
 

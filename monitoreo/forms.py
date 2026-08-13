@@ -1,7 +1,8 @@
 from decimal import Decimal
 
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm
+from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
+from django.core.exceptions import ObjectDoesNotExist
 from django.forms import BaseFormSet, formset_factory
 from django.utils import timezone
 
@@ -45,6 +46,37 @@ class LoginForm(AuthenticationForm):
                 "autocomplete": "current-password",
             }
         ),
+    )
+
+    def confirm_login_allowed(self, user):
+        try:
+            perfil = user.perfil_acuicultor
+            permitido = user.is_active and perfil.activo and perfil.comunidad.activa
+        except ObjectDoesNotExist:
+            permitido = False
+        if not permitido:
+            raise forms.ValidationError(
+                "No fue posible iniciar sesión. Verifica los datos o intenta más tarde.",
+                code="invalid_login",
+            )
+
+
+class CambioClaveInicialForm(PasswordChangeForm):
+    old_password = forms.CharField(
+        label="Contraseña temporal",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"class": INPUT_CLASS, "autocomplete": "current-password"}),
+    )
+    new_password1 = forms.CharField(
+        label="Nueva contraseña",
+        strip=False,
+        help_text="Entre 8 y 32 caracteres; no uses datos personales ni claves comunes.",
+        widget=forms.PasswordInput(attrs={"class": INPUT_CLASS, "autocomplete": "new-password"}),
+    )
+    new_password2 = forms.CharField(
+        label="Confirma la nueva contraseña",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"class": INPUT_CLASS, "autocomplete": "new-password"}),
     )
 
 

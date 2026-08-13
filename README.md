@@ -68,7 +68,10 @@ de la base de datos.
 Las cuentas reales se crean de forma interactiva para que ninguna contraseña
 quede en el código, el historial de Git, los argumentos del proceso ni la salida
 de la terminal. El comando solicita la contraseña dos veces con entrada oculta y
-aplica la política de contraseñas de Django.
+aplica la política de contraseñas de Django (8 a 32 caracteres, no común, no
+exclusivamente numérica y sin similitud obvia con la cuenta). Toda cuenta creada
+por este comando recibe una contraseña temporal y debe reemplazarla en el primer
+acceso.
 
 Para la dotación inicial acordada, ejecutar desde una consola privada del
 servicio Django —localmente durante pruebas o en Railway después de migrar la
@@ -109,11 +112,14 @@ python manage.py collectstatic --noinput
 
 1. Crear un servicio Railway desde este repositorio y seleccionar la rama `dev` durante las pruebas.
 2. Configurar `DATABASE_URL` con la cadena PostgreSQL de Neon.
-3. Configurar `SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS`.
+3. Configurar `SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS`,
+   `CSRF_TRUSTED_ORIGINS` y `TRUST_X_FORWARDED_FOR=True`.
 4. Mantener `SECURE_HSTS_SECONDS=0` durante la primera validación HTTPS; elevarlo solo cuando el dominio sea definitivo.
 5. Railway usará `railway.toml`: recolecta estáticos, ejecuta migraciones y levanta Gunicorn.
 6. Ejecutar `python manage.py inicializar_catalogo_paipayales` una sola vez desde una consola privada; repetirlo es seguro.
 7. Crear las seis cuentas reales con `crear_usuario_operativo`; no ejecutar `seed_demo`.
 8. Validar `GET /api/v1/health/` antes de apuntar Android al dominio.
+9. Programar `python manage.py limpiar_eventos_seguridad` diariamente para
+   aplicar la retención de 30 días de eventos de acceso.
 
 No se guardan credenciales de Neon en la aplicación Android. Django es la única capa que accede a la base central.

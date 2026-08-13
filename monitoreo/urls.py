@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import views
 from .api import (
+    CambioClaveApiView,
     EspeciesApiView,
     HealthApiView,
     JornadaAnularApiView,
@@ -23,6 +24,7 @@ urlpatterns = [
     path("api/v1/health/", HealthApiView.as_view(), name="api_health"),
     path("api/v1/auth/login/", LoginApiView.as_view(), name="api_login"),
     path("api/v1/auth/logout/", LogoutApiView.as_view(), name="api_logout"),
+    path("api/v1/auth/cambiar-clave/", CambioClaveApiView.as_view(), name="api_cambiar_clave"),
     path("api/v1/auth/me/", MeApiView.as_view(), name="api_me"),
     path("api/v1/catalogos/especies/", EspeciesApiView.as_view(), name="api_especies"),
     path("api/v1/catalogos/piscinas/", PiscinasApiView.as_view(), name="api_piscinas"),
@@ -34,6 +36,7 @@ urlpatterns = [
     path("api/v1/movimientos/<uuid:movimiento_id>/anular/", MovimientoAnularApiView.as_view(), name="api_movimiento_anular"),
     path("api/v1/semaforos/", SemaforosApiView.as_view(), name="api_semaforos"),
     path("login/", views.login_view, name="login"),
+    path("cambiar-clave-inicial/", views.cambiar_clave_inicial, name="cambiar_clave_inicial"),
     path("logout/", views.logout_view, name="logout"),
     path("", views.dashboard, name="dashboard"),
     path("piscinas/<uuid:piscina_id>/", views.piscina_detalle, name="piscina_detalle"),

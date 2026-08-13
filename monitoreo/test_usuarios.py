@@ -36,6 +36,7 @@ class CreacionUsuariosOperativosTests(TestCase):
 
         self.assertTrue(usuario.is_staff)
         self.assertTrue(usuario.is_superuser)
+        self.assertTrue(usuario.debe_cambiar_clave)
         self.assertEqual(usuario.perfil_acuicultor.rol, Acuicultor.Rol.TECNICO)
         self.assertNotIn("Trucha#2026Azul", salida)
 
@@ -50,6 +51,7 @@ class CreacionUsuariosOperativosTests(TestCase):
 
         self.assertTrue(usuario.is_staff)
         self.assertFalse(usuario.is_superuser)
+        self.assertTrue(usuario.debe_cambiar_clave)
         self.assertEqual(usuario.perfil_acuicultor.rol, Acuicultor.Rol.ADMINISTRADOR)
         self.assertTrue(usuario.groups.filter(name=GRUPO_ADMINISTRADORES_FUNCIONALES).exists())
         self.assertTrue(usuario.has_perm("cuentas.add_usuario"))
@@ -71,6 +73,7 @@ class CreacionUsuariosOperativosTests(TestCase):
 
         self.assertFalse(usuario.is_staff)
         self.assertFalse(usuario.is_superuser)
+        self.assertTrue(usuario.debe_cambiar_clave)
         self.assertEqual(usuario.perfil_acuicultor.rol, Acuicultor.Rol.ACUICULTOR)
         self.assertFalse(usuario.groups.exists())
 

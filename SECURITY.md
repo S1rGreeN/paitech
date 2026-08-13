@@ -47,9 +47,44 @@ https://docs.djangoproject.com/en/5.2/topics/security/#sql-injection-protection
 - Biometría API: máximo 2000 peces por jornada. Este límite es defensivo y
   deberá revisarse si el protocolo de muestreo real exige más.
 - Cuerpo HTTP: máximo 2 MiB en Django v1.4.
-- Login: correo válido, contraseña de máximo 128 caracteres y límite inicial de
-  10 intentos por minuto. El límite debe complementarse con monitoreo en
-  producción; no se considera por sí solo protección absoluta contra bots.
+- Login: correo válido; la política de alta/cambio acepta entre 8 y 32
+  caracteres y aplica los validadores de similitud, claves comunes y claves
+  exclusivamente numéricas de Django.
+- Intentos: contador compartido en la base por correo normalizado e IP. Cinco
+  fallos en 15 minutos bloquean 15 minutos; una reincidencia bloquea 60 minutos.
+  Los mensajes no confirman si el correo existe y no se registran claves,
+  tokens ni cuerpos HTTP.
+
+## Sesiones, contraseñas y recuperación
+
+- Cada instalación Android recibe su propio token aleatorio. La base guarda un
+  selector UUID y SHA-256 del secreto; nunca el secreto original.
+- Una solicitud autenticada renueva una vigencia deslizante de 30 días. Varios
+  teléfonos pueden permanecer activos y cada uno puede revocarse de forma
+  independiente desde Django Admin por el superusuario técnico.
+- Cerrar sesión revoca ese dispositivo. Cambiar/restablecer la contraseña o
+  desactivar la cuenta revoca todas las sesiones web y móviles.
+- Las claves temporales obligan a cambiarlas antes de usar la web o los recursos
+  de negocio de la API. No se fuerza rotación periódica de una clave definitiva.
+- No existe recuperación automática por correo en esta etapa. El superusuario
+  técnico puede restablecer cualquier cuenta; un administrador funcional solo
+  cuentas de acuicultores. La clave temporal se entrega por un canal privado,
+  obliga al cambio y el evento queda auditado sin guardar la clave.
+- Los eventos de acceso se conservan 30 días. Los accesos eliminan
+  oportunísticamente eventos antiguos y el comando diario recomendado es
+  `python manage.py limpiar_eventos_seguridad`.
+
+## Seguridad local de Android
+
+- Token, correo y marca temporal de validación se guardan en
+  `EncryptedSharedPreferences`, protegidas por Android Keystore. La base Room
+  permanece dentro del sandbox privado y las copias de seguridad están
+  deshabilitadas.
+- Si el teléfono no tiene PIN, patrón, contraseña o biometría, la app muestra una
+  advertencia y permite continuar, según la decisión funcional del proyecto.
+- El trabajo offline se permite como máximo 30 días desde la última respuesta
+  autenticada. Una expiración conserva los pendientes; un cierre voluntario solo
+  se permite sin pendientes/conflictos y elimina sesión, Room y caché local.
 
 ## Producción Railway / Neon
 
@@ -65,6 +100,9 @@ Antes de exponer el servicio:
   política de referente activas;
 - ejecutar `python manage.py check --deploy` con las variables reales;
 - configurar `/api/v1/health/` como healthcheck de despliegue;
+- configurar `TRUST_X_FORWARDED_FOR=True` solamente en Railway, donde el proxy es
+  controlado, para que el contador compartido use la IP del cliente;
+- programar `limpiar_eventos_seguridad` una vez al día;
 - no ejecutar `seed_demo` en Railway/Neon; el propio comando se bloquea con
   `DEBUG=False` o una base distinta de SQLite;
 - inicializar solo los catálogos confirmados mediante
@@ -82,7 +120,6 @@ despliegue; no se copiarán secretos en archivos versionados.
 
 - ejecutar pruebas dinámicas contra el despliegue de desarrollo;
 - revisar dependencias y alertas de vulnerabilidades;
-- probar expiración/revocación de sesión y recuperación tras token vencido;
-- ejecutar pruebas Android instrumentadas en emulador API 24+;
+- repetir dinámicamente expiración/revocación contra Railway y Neon;
 - hacer prueba de aceptación en un teléfono físico antes del uso de campo;
 - definir copias de seguridad, restauración y respuesta ante incidentes.

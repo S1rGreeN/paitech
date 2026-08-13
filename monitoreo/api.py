@@ -1,4 +1,5 @@
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import PermissionDenied, ValidationError as DjangoValidationError
 from decimal import Decimal
 
@@ -6,11 +7,19 @@ from django.db.models import Avg
 from django.db import connection
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
-from rest_framework.authtoken.models import Token
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+
+from cuentas.models import EventoSeguridad, TokenDispositivo
+from cuentas.security import (
+    estado_bloqueo,
+    normalizar_email,
+    obtener_ip,
+    registrar_evento,
+    registrar_login_exitoso,
+    registrar_login_fallido,
+)
 
 from .calidad_agua import (
     validar_amoniaco_total_kit,
@@ -79,6 +88,28 @@ class LoginSerializer(serializers.Serializer):
         trim_whitespace=False,
         write_only=True,
     )
+    dispositivo_id = serializers.CharField(min_length=10, max_length=128)
+    nombre_dispositivo = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=160
+    )
+
+
+class CambioClaveSerializer(serializers.Serializer):
+    password_actual = serializers.CharField(max_length=128, trim_whitespace=False, write_only=True)
+    password_nuevo = serializers.CharField(min_length=8, max_length=32, trim_whitespace=False, write_only=True)
+    confirmacion = serializers.CharField(min_length=8, max_length=32, trim_whitespace=False, write_only=True)
+
+    def validate(self, attrs):
+        usuario = self.context["request"].user
+        if not usuario.check_password(attrs["password_actual"]):
+            raise serializers.ValidationError({"password_actual": "La contraseña actual no es correcta."})
+        if attrs["password_nuevo"] != attrs["confirmacion"]:
+            raise serializers.ValidationError({"confirmacion": "Las contraseñas no coinciden."})
+        try:
+            validate_password(attrs["password_nuevo"], user=usuario)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"password_nuevo": error.messages}) from error
+        return attrs
 
 
 class JornadaEscrituraSerializer(serializers.Serializer):
@@ -232,25 +263,48 @@ def movimiento_json(movimiento):
 
 class LoginApiView(APIView):
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "login"
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data["email"].strip().lower()
+        email = normalizar_email(serializer.validated_data["email"])
         password = serializer.validated_data["password"]
+        dispositivo_id = serializer.validated_data["dispositivo_id"]
+        nombre_dispositivo = serializer.validated_data["nombre_dispositivo"]
+        ip = obtener_ip(request)
+        if estado_bloqueo(email, ip):
+            return Response(
+                {"detail": "No fue posible iniciar sesión. Intenta nuevamente más tarde."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         usuario = authenticate(request=request, username=email, password=password)
         if usuario is None or not usuario.is_active:
-            return Response({"detail": "Credenciales inválidas."}, status=status.HTTP_401_UNAUTHORIZED)
+            bloqueo = registrar_login_fallido(email, ip)
+            return Response(
+                {"detail": "No fue posible iniciar sesión. Verifica los datos o intenta más tarde."},
+                status=(status.HTTP_429_TOO_MANY_REQUESTS if bloqueo else status.HTTP_401_UNAUTHORIZED),
+            )
         try:
             perfil = perfil_de(usuario)
-        except PermissionDenied as error:
-            return _respuesta_error(error)
-        token, _ = Token.objects.get_or_create(user=usuario)
+        except PermissionDenied:
+            bloqueo = registrar_login_fallido(email, ip)
+            return Response(
+                {"detail": "No fue posible iniciar sesión. Verifica los datos o intenta más tarde."},
+                status=(status.HTTP_429_TOO_MANY_REQUESTS if bloqueo else status.HTTP_401_UNAUTHORIZED),
+            )
+        token, credencial = TokenDispositivo.emitir(
+            usuario=usuario,
+            dispositivo_id=dispositivo_id,
+            nombre_dispositivo=nombre_dispositivo,
+        )
+        registrar_login_exitoso(
+            usuario, ip, canal="android", dispositivo_id=dispositivo_id
+        )
         return Response(
             {
-                "token": token.key,
+                "token": credencial,
+                "expira_en": token.expira_en.isoformat(),
+                "debe_cambiar_clave": usuario.debe_cambiar_clave,
                 "usuario": {
                     "id": usuario.id,
                     "correo": usuario.email,
@@ -273,9 +327,31 @@ class HealthApiView(APIView):
 
 
 class LogoutApiView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
-        if request.auth:
-            request.auth.delete()
+        if isinstance(request.auth, TokenDispositivo):
+            request.auth.revocar()
+        registrar_evento(
+            EventoSeguridad.Tipo.LOGOUT,
+            usuario=request.user,
+            ip=obtener_ip(request),
+            detalle={"canal": "android"},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CambioClaveApiView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = CambioClaveSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        usuario = request.user
+        usuario.set_password(serializer.validated_data["password_nuevo"])
+        usuario.debe_cambiar_clave = False
+        usuario._cambio_clave_confirmado = True
+        usuario.save(update_fields=["password", "debe_cambiar_clave"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

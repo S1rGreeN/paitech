@@ -6,3 +6,5 @@ class CuentasConfig(AppConfig):
     name = "cuentas"
     verbose_name = "Cuentas"
 
+    def ready(self):
+        import cuentas.signals  # noqa: F401

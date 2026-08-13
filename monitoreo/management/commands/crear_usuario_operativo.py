@@ -66,6 +66,7 @@ class Command(BaseCommand):
             is_active=True,
             is_staff=configuracion["is_staff"],
             is_superuser=configuracion["is_superuser"],
+            debe_cambiar_clave=True,
         )
         try:
             validate_password(clave, user=usuario)
@@ -91,4 +92,5 @@ class Command(BaseCommand):
                 usuario.groups.add(grupo)
 
         self.stdout.write(self.style.SUCCESS(f"Usuario {email} creado como {options['rol']}."))
+        self.stdout.write("La cuenta deberá cambiar la contraseña temporal en su primer acceso.")
         self.stdout.write("La contraseña no se imprimió ni se guardó en archivos del proyecto.")
