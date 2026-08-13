@@ -126,6 +126,20 @@ class AutenticacionYWebTests(BasePaiPayTest):
         self.assertNotContains(respuesta, "LOM-01")
         self.assertContains(respuesta, ">Lombricultura</h3>", html=False, count=1)
 
+    def test_catalogo_api_no_entrega_lombricultura_a_android(self):
+        Piscina.objects.create(
+            comunidad=self.comunidad,
+            nombre="Lecho demo que no debe sincronizarse",
+            codigo="LOM-01",
+            tipo=Piscina.Tipo.LOMBRICES,
+        )
+        self.autenticar()
+
+        respuesta = self.api.get(reverse("monitoreo:api_piscinas"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual([item["codigo"] for item in respuesta.data], ["P-01"])
+
     def test_detalle_piscina_muestra_un_solo_acceso_a_nuevo_registro(self):
         self.client.force_login(self.user)
 

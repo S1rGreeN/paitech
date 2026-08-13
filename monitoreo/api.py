@@ -303,7 +303,11 @@ class EspeciesApiView(APIView):
 class PiscinasApiView(APIView):
     def get(self, request):
         perfil = perfil_de(request.user)
-        piscinas = Piscina.objects.filter(comunidad=perfil.comunidad, activa=True).select_related("especie")
+        piscinas = Piscina.objects.filter(
+            comunidad=perfil.comunidad,
+            activa=True,
+            tipo=Piscina.Tipo.PECES,
+        ).select_related("especie")
         return Response(
             [
                 {
