@@ -23,7 +23,7 @@ seguridad en [SECURITY.md](SECURITY.md) y las decisiones generales en
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements.txt
 Copy-Item .env.example .env
 python manage.py migrate
 python manage.py seed_demo
@@ -42,6 +42,30 @@ python manage.py seed_demo --rotar-claves
 Las claves demo no se guardan en Git. Este comando es solo para desarrollo
 local: se bloquea con `DEBUG=False` y también ante cualquier base que no sea
 SQLite. Nunca debe ejecutarse en Neon. Tampoco crea `LOM-01`.
+
+## Dependencias reproducibles
+
+Python queda fijado a la familia `3.12` mediante `.python-version`. Las
+dependencias directas de producción se declaran con versión exacta en
+`requirements.in`; `requirements.txt` contiene además todas las dependencias
+transitivas y los hashes aceptados para cada paquete. Railway y CI deben instalar
+siempre con `--require-hashes`: si una versión o archivo descargado no coincide,
+la instalación se detiene.
+
+Para actualizar deliberadamente las dependencias desde un entorno Python 3.12:
+
+```powershell
+python -m pip install pip-tools==7.6.1 pip-audit==2.10.1
+python -m piptools compile --upgrade --generate-hashes --strip-extras --output-file requirements.txt requirements.in
+python -m pip install --require-hashes -r requirements.txt
+python -m pip check
+python -m pip_audit -r requirements.txt --disable-pip
+python manage.py test
+```
+
+No se edita `requirements.txt` a mano. Toda actualización comienza en
+`requirements.in` y debe revisar el diff, la compatibilidad documentada y las
+pruebas antes de versionarse.
 
 ## Inicialización del catálogo real
 
@@ -115,7 +139,8 @@ python manage.py collectstatic --noinput
 3. Configurar `SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS`,
    `CSRF_TRUSTED_ORIGINS` y `TRUST_X_FORWARDED_FOR=True`.
 4. Mantener `SECURE_HSTS_SECONDS=0` durante la primera validación HTTPS; elevarlo solo cuando el dominio sea definitivo.
-5. Railway usará `railway.toml`: recolecta estáticos, ejecuta migraciones y levanta Gunicorn.
+5. Railway usará Railpack mediante `railway.toml`: instala el archivo bloqueado,
+   recolecta estáticos, ejecuta migraciones y levanta Gunicorn.
 6. Ejecutar `python manage.py inicializar_catalogo_paipayales` una sola vez desde una consola privada; repetirlo es seguro.
 7. Crear las seis cuentas reales con `crear_usuario_operativo`; no ejecutar `seed_demo`.
 8. Validar `GET /api/v1/health/` antes de apuntar Android al dominio.
