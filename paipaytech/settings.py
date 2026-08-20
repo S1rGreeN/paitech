@@ -54,6 +54,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "paipaytech.middleware.RequestIdMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -176,6 +177,10 @@ REST_FRAMEWORK = {
 # Solo debe activarse cuando la aplicación corre detrás de un proxy controlado
 # (Railway). En desarrollo se usa REMOTE_ADDR para impedir suplantar la IP.
 TRUST_X_FORWARDED_FOR = env_bool("TRUST_X_FORWARDED_FOR", False)
+
+# La estructura de telemetría se entrega en 1.5-dev, pero no debe aceptar datos
+# ni credenciales hasta conocer y validar el hardware real.
+SENSORES_HABILITADOS = env_bool("SENSORES_HABILITADOS", False)
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

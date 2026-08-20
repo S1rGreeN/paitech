@@ -13,7 +13,7 @@ from .calidad_agua import (
     PH_VALORES,
     opciones_formulario,
 )
-from .models import JornadaRegistro
+from .models import CicloProductivo, JornadaRegistro, Piscina
 
 INPUT_CLASS = (
     "mt-1 block w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 "
@@ -160,6 +160,109 @@ class JornadaForm(forms.ModelForm):
         if not self.cleaned_data["registrar_agua"]:
             return None
         return {campo: self.cleaned_data[campo] for campo in ("ph", "nitrato", "nitrito", "amoniaco_total")}
+
+
+class CicloAperturaForm(forms.Form):
+    iniciado_en = forms.DateTimeField(
+        label="Fecha y hora de inicio",
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M",
+            attrs={"class": INPUT_CLASS, "type": "datetime-local"},
+        ),
+    )
+    poblacion_inicial = forms.IntegerField(
+        min_value=1,
+        label="Población inicial sembrada",
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": "1"}),
+    )
+    duracion_estimada_meses = forms.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=60,
+        label="Duración estimada (meses)",
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": "1", "max": "60"}),
+    )
+    observaciones_apertura = forms.CharField(
+        required=False,
+        max_length=5000,
+        label="Observaciones",
+        widget=forms.Textarea(attrs={"class": TEXTAREA_CLASS}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound:
+            self.initial["iniciado_en"] = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
+
+
+class CicloCierreForm(forms.Form):
+    cerrado_en = forms.DateTimeField(
+        label="Fecha y hora de cierre",
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M",
+            attrs={"class": INPUT_CLASS, "type": "datetime-local"},
+        ),
+    )
+    destino_cierre = forms.ChoiceField(
+        choices=CicloProductivo.DestinoCierre.choices,
+        label="Destino final",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+    poblacion_final = forms.IntegerField(
+        min_value=0,
+        label="Población final viva",
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": "0"}),
+    )
+    peso_total_cosechado_kg = forms.DecimalField(
+        required=False,
+        min_value=0,
+        max_digits=12,
+        decimal_places=3,
+        label="Peso total cosechado (kg, opcional)",
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": "0", "step": "0.001"}),
+    )
+    piscina_destino_cierre = forms.ModelChoiceField(
+        required=False,
+        queryset=Piscina.objects.none(),
+        label="Piscina destino (opcional para traslado)",
+        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+    )
+    observaciones_cierre = forms.CharField(
+        required=False,
+        max_length=5000,
+        label="Observaciones",
+        widget=forms.Textarea(attrs={"class": TEXTAREA_CLASS}),
+    )
+
+    def __init__(self, *args, ciclo, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ciclo = ciclo
+        self.fields["piscina_destino_cierre"].queryset = Piscina.objects.filter(
+            comunidad=ciclo.piscina.comunidad,
+            especie=ciclo.especie,
+            activa=True,
+            tipo=Piscina.Tipo.PECES,
+        ).exclude(pk=ciclo.piscina_id)
+        if not self.is_bound:
+            self.initial["cerrado_en"] = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
+
+    def clean(self):
+        datos = super().clean()
+        destino = datos.get("destino_cierre")
+        piscina_destino = datos.get("piscina_destino_cierre")
+        if destino != CicloProductivo.DestinoCierre.TRASLADO and piscina_destino:
+            self.add_error(
+                "piscina_destino_cierre",
+                "Solo puede indicarse cuando el destino final es traslado.",
+            )
+        if (
+            destino == CicloProductivo.DestinoCierre.MORTALIDAD_TOTAL
+            and datos.get("poblacion_final") != 0
+        ):
+            self.add_error("poblacion_final", "La mortalidad total requiere población final cero.")
+        return datos
 
 
 class ObservacionPezForm(forms.Form):

@@ -2,12 +2,13 @@ import json
 from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 from .models import (
     Acuicultor,
     AuditoriaCambio,
+    CicloProductivo,
     JornadaRegistro,
     MedicionAgua,
     MovimientoPoblacion,
@@ -15,6 +16,7 @@ from .models import (
     ObservacionPez,
     Piscina,
 )
+from .prediccion import calcular_prediccion, validar_prediccion_cache
 
 
 class ConflictoVersion(Exception):
@@ -39,6 +41,7 @@ def snapshot_jornada(jornada):
     datos = {
         "id": jornada.id,
         "piscina": jornada.piscina_id,
+        "ciclo": jornada.ciclo_id,
         "autor": jornada.autor_id,
         "capturada_en": jornada.capturada_en,
         "poblacion_estimada": jornada.poblacion_estimada,
@@ -78,11 +81,50 @@ def snapshot_movimiento(movimiento):
             "cantidad": movimiento.cantidad,
             "piscina_origen": movimiento.piscina_origen_id,
             "piscina_destino": movimiento.piscina_destino_id,
+            "ciclo_origen": movimiento.ciclo_origen_id,
+            "ciclo_destino": movimiento.ciclo_destino_id,
             "autor": movimiento.autor_id,
             "ocurrido_en": movimiento.ocurrido_en,
             "observaciones": movimiento.observaciones,
             "estado": movimiento.estado,
             "version": movimiento.version,
+        }
+    )
+
+
+def snapshot_ciclo(ciclo):
+    return _json_seguro(
+        {
+            "id": ciclo.id,
+            "piscina": ciclo.piscina_id,
+            "especie": ciclo.especie_id,
+            "numero": ciclo.numero,
+            "estado": ciclo.estado,
+            "iniciado_en": ciclo.iniciado_en,
+            "poblacion_inicial": ciclo.poblacion_inicial,
+            "duracion_estimada_meses": ciclo.duracion_estimada_meses,
+            "observaciones_apertura": ciclo.observaciones_apertura,
+            "autor_apertura": ciclo.autor_apertura_id,
+            "fuente": ciclo.fuente,
+            "dispositivo_id": ciclo.dispositivo_id,
+            "cerrado_en": ciclo.cerrado_en,
+            "destino_cierre": ciclo.destino_cierre,
+            "poblacion_final": ciclo.poblacion_final,
+            "peso_total_cosechado_kg": ciclo.peso_total_cosechado_kg,
+            "observaciones_cierre": ciclo.observaciones_cierre,
+            "piscina_destino_cierre": ciclo.piscina_destino_cierre_id,
+            "autor_cierre": ciclo.autor_cierre_id,
+            "prediccion_poblacion_final": ciclo.prediccion_poblacion_final,
+            "prediccion_min": ciclo.prediccion_min,
+            "prediccion_max": ciclo.prediccion_max,
+            "prediccion_tasa": ciclo.prediccion_tasa,
+            "prediccion_ciclos_usados": ciclo.prediccion_ciclos_usados,
+            "prediccion_confianza": ciclo.prediccion_confianza,
+            "prediccion_metodo_version": ciclo.prediccion_metodo_version,
+            "prediccion_calculada_en": ciclo.prediccion_calculada_en,
+            "prediccion_datos_hasta": ciclo.prediccion_datos_hasta,
+            "prediccion_origen": ciclo.prediccion_origen,
+            "version": ciclo.version,
         }
     )
 
@@ -101,13 +143,14 @@ def _registrar_auditoria(*, entidad, entidad_uuid, accion, actor, version_anteri
     )
 
 
-def _jornada_equivale_a_reintento(existente, *, piscina, capturada_en,
+def _jornada_equivale_a_reintento(existente, *, piscina, ciclo, capturada_en,
                                    poblacion_estimada, observaciones,
                                    fuente, dispositivo_id, agua, peces):
     if existente.version != 1 or existente.estado != JornadaRegistro.Estado.COMPLETA:
         return False
     if (
         existente.piscina_id != piscina.id
+        or existente.ciclo_id != ciclo.id
         or existente.capturada_en != capturada_en
         or existente.poblacion_estimada != poblacion_estimada
         or existente.observaciones != observaciones
@@ -142,7 +185,8 @@ def _jornada_equivale_a_reintento(existente, *, piscina, capturada_en,
 
 def _movimiento_equivale_a_reintento(existente, *, tipo, cantidad,
                                       ocurrido_en, piscina_origen,
-                                      piscina_destino, observaciones):
+                                      piscina_destino, ciclo_origen,
+                                      ciclo_destino, observaciones):
     return (
         existente.version == 1
         and existente.estado == MovimientoPoblacion.Estado.ACTIVO
@@ -155,6 +199,12 @@ def _movimiento_equivale_a_reintento(existente, *, tipo, cantidad,
         and existente.piscina_destino_id == (
             piscina_destino.id if piscina_destino else None
         )
+        and existente.ciclo_origen_id == (
+            ciclo_origen.id if ciclo_origen else None
+        )
+        and existente.ciclo_destino_id == (
+            ciclo_destino.id if ciclo_destino else None
+        )
         and existente.observaciones == observaciones
     )
 
@@ -166,6 +216,194 @@ def _validar_piscina(perfil, piscina):
         raise ValidationError("La piscina está inactiva.")
     if piscina.tipo != Piscina.Tipo.PECES:
         raise ValidationError("Lombricultura permanece como Próximamente en esta versión.")
+
+
+def _ciclo_para_fecha(piscina, fecha, ciclo=None):
+    if ciclo is None:
+        ciclo = (
+            CicloProductivo.objects.filter(
+                piscina=piscina,
+                estado=CicloProductivo.Estado.ACTIVO,
+                iniciado_en__lte=fecha,
+            )
+            .order_by("-iniciado_en")
+            .first()
+        )
+    if ciclo is None:
+        raise ValidationError(
+            {"ciclo": "La piscina necesita un ciclo activo para registrar esta operación."}
+        )
+    if ciclo.piscina_id != piscina.id:
+        raise ValidationError({"ciclo": "El ciclo no pertenece a la piscina indicada."})
+    if ciclo.estado == CicloProductivo.Estado.ANULADO:
+        raise ValidationError({"ciclo": "No se puede registrar en un ciclo anulado."})
+    if fecha < ciclo.iniciado_en:
+        raise ValidationError({"ciclo": "La fecha es anterior a la apertura del ciclo."})
+    if ciclo.cerrado_en and fecha > ciclo.cerrado_en:
+        raise ValidationError({"ciclo": "La fecha es posterior al cierre del ciclo."})
+    return ciclo
+
+
+@transaction.atomic
+def crear_ciclo(
+    *,
+    actor,
+    piscina,
+    iniciado_en,
+    poblacion_inicial,
+    duracion_estimada_meses=None,
+    observaciones_apertura="",
+    fuente=CicloProductivo.Fuente.ANDROID,
+    dispositivo_id="",
+    ciclo_id=None,
+    prediccion_cache=None,
+):
+    perfil = perfil_de(actor)
+    _validar_piscina(perfil, piscina)
+    Piscina.objects.select_for_update().get(pk=piscina.pk)
+
+    if ciclo_id:
+        existente = (
+            CicloProductivo.objects.select_for_update().filter(pk=ciclo_id).first()
+        )
+        if existente:
+            if existente.autor_apertura.user_id != actor.id and not actor.is_superuser:
+                raise PermissionDenied("El UUID ya pertenece a otro autor.")
+            equivalente = (
+                existente.version == 1
+                and existente.estado == CicloProductivo.Estado.ACTIVO
+                and existente.piscina_id == piscina.id
+                and existente.iniciado_en == iniciado_en
+                and existente.poblacion_inicial == poblacion_inicial
+                and existente.duracion_estimada_meses == duracion_estimada_meses
+                and existente.observaciones_apertura == observaciones_apertura
+                and existente.fuente == fuente
+                and existente.dispositivo_id == dispositivo_id
+            )
+            if equivalente:
+                return existente, False
+            raise ConflictoVersion(
+                "El UUID del ciclo ya existe con datos o versión diferentes."
+            )
+
+    if CicloProductivo.objects.filter(
+        piscina=piscina, estado=CicloProductivo.Estado.ACTIVO
+    ).exists():
+        raise ConflictoVersion("La piscina ya tiene un ciclo activo.")
+
+    numero = (
+        CicloProductivo.objects.filter(piscina=piscina).aggregate(
+            valor=models.Max("numero")
+        )["valor"]
+        or 0
+    ) + 1
+    if prediccion_cache:
+        try:
+            prediccion = validar_prediccion_cache(prediccion_cache)
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValidationError({"prediccion": str(error)}) from error
+    else:
+        prediccion = calcular_prediccion(piscina, poblacion_inicial)
+
+    ciclo = CicloProductivo(
+        id=ciclo_id,
+        piscina=piscina,
+        especie=piscina.especie,
+        numero=numero,
+        iniciado_en=iniciado_en,
+        poblacion_inicial=poblacion_inicial,
+        duracion_estimada_meses=duracion_estimada_meses,
+        observaciones_apertura=observaciones_apertura,
+        autor_apertura=perfil,
+        fuente=fuente,
+        dispositivo_id=dispositivo_id,
+        **prediccion,
+    )
+    ciclo.full_clean()
+    try:
+        ciclo.save()
+    except IntegrityError as error:
+        raise ConflictoVersion("La piscina ya tiene un ciclo activo.") from error
+    _registrar_auditoria(
+        entidad=AuditoriaCambio.Entidad.CICLO,
+        entidad_uuid=ciclo.id,
+        accion=AuditoriaCambio.Accion.CREAR,
+        actor=actor,
+        version_anterior=None,
+        version_nueva=1,
+        antes=None,
+        despues=snapshot_ciclo(ciclo),
+    )
+    return ciclo, True
+
+
+@transaction.atomic
+def cerrar_ciclo(
+    *,
+    ciclo,
+    actor,
+    version_esperada,
+    cerrado_en,
+    destino_cierre,
+    poblacion_final,
+    peso_total_cosechado_kg=None,
+    observaciones_cierre="",
+    piscina_destino_cierre=None,
+):
+    perfil = perfil_de(actor)
+    ciclo = (
+        CicloProductivo.objects.select_for_update()
+        .select_related("piscina", "especie")
+        .get(pk=ciclo.pk)
+    )
+    _validar_piscina(perfil, ciclo.piscina)
+    if piscina_destino_cierre is not None:
+        _validar_piscina(perfil, piscina_destino_cierre)
+
+    cierre_equivalente = (
+        ciclo.estado == CicloProductivo.Estado.CERRADO
+        and ciclo.version == version_esperada + 1
+        and ciclo.cerrado_en == cerrado_en
+        and ciclo.destino_cierre == destino_cierre
+        and ciclo.poblacion_final == poblacion_final
+        and ciclo.peso_total_cosechado_kg == peso_total_cosechado_kg
+        and ciclo.observaciones_cierre == observaciones_cierre
+        and ciclo.piscina_destino_cierre_id
+        == (piscina_destino_cierre.id if piscina_destino_cierre else None)
+    )
+    if cierre_equivalente:
+        return ciclo, False
+    if ciclo.version != version_esperada:
+        raise ConflictoVersion(
+            f"El ciclo está en la versión {ciclo.version}; se recibió la {version_esperada}."
+        )
+    if ciclo.estado != CicloProductivo.Estado.ACTIVO:
+        raise ConflictoVersion("El ciclo ya no está activo.")
+
+    antes = snapshot_ciclo(ciclo)
+    ciclo.estado = CicloProductivo.Estado.CERRADO
+    ciclo.cerrado_en = cerrado_en
+    ciclo.destino_cierre = destino_cierre
+    ciclo.poblacion_final = poblacion_final
+    ciclo.peso_total_cosechado_kg = peso_total_cosechado_kg
+    ciclo.observaciones_cierre = observaciones_cierre
+    ciclo.piscina_destino_cierre = piscina_destino_cierre
+    ciclo.autor_cierre = perfil
+    ciclo.version += 1
+    ciclo.full_clean()
+    ciclo.save()
+    _registrar_auditoria(
+        entidad=AuditoriaCambio.Entidad.CICLO,
+        entidad_uuid=ciclo.id,
+        accion=AuditoriaCambio.Accion.CORREGIR,
+        actor=actor,
+        version_anterior=version_esperada,
+        version_nueva=ciclo.version,
+        antes=antes,
+        despues=snapshot_ciclo(ciclo),
+        motivo="Cierre del ciclo productivo",
+    )
+    return ciclo, True
 
 
 def _guardar_bloques(jornada, agua, peces):
@@ -186,9 +424,10 @@ def _guardar_bloques(jornada, agua, peces):
 
 
 @transaction.atomic
-def crear_jornada(*, actor, piscina, capturada_en, poblacion_estimada, observaciones="", fuente=JornadaRegistro.Fuente.ANDROID, dispositivo_id="", agua=None, peces=None, jornada_id=None):
+def crear_jornada(*, actor, piscina, capturada_en, poblacion_estimada, ciclo=None, observaciones="", fuente=JornadaRegistro.Fuente.ANDROID, dispositivo_id="", agua=None, peces=None, jornada_id=None):
     perfil = perfil_de(actor)
     _validar_piscina(perfil, piscina)
+    ciclo = _ciclo_para_fecha(piscina, capturada_en, ciclo)
     if jornada_id:
         existente = JornadaRegistro.objects.select_for_update().filter(pk=jornada_id).first()
         if existente:
@@ -197,6 +436,7 @@ def crear_jornada(*, actor, piscina, capturada_en, poblacion_estimada, observaci
             if _jornada_equivale_a_reintento(
                 existente,
                 piscina=piscina,
+                ciclo=ciclo,
                 capturada_en=capturada_en,
                 poblacion_estimada=poblacion_estimada,
                 observaciones=observaciones,
@@ -213,6 +453,7 @@ def crear_jornada(*, actor, piscina, capturada_en, poblacion_estimada, observaci
     jornada = JornadaRegistro(
         id=jornada_id,
         piscina=piscina,
+        ciclo=ciclo,
         autor=perfil,
         capturada_en=capturada_en,
         poblacion_estimada=poblacion_estimada,
@@ -239,7 +480,7 @@ def crear_jornada(*, actor, piscina, capturada_en, poblacion_estimada, observaci
 
 
 @transaction.atomic
-def corregir_jornada(*, jornada, actor, version_esperada, piscina, capturada_en, poblacion_estimada, observaciones="", dispositivo_id="", agua=None, peces=None, motivo=""):
+def corregir_jornada(*, jornada, actor, version_esperada, piscina, capturada_en, poblacion_estimada, ciclo=None, observaciones="", dispositivo_id="", agua=None, peces=None, motivo=""):
     jornada = JornadaRegistro.objects.select_for_update().get(pk=jornada.pk)
     if not jornada.puede_modificar(actor):
         raise PermissionDenied("Solo el autor o un administrador pueden corregir la jornada.")
@@ -249,9 +490,11 @@ def corregir_jornada(*, jornada, actor, version_esperada, piscina, capturada_en,
         raise ValidationError("Una jornada anulada no puede corregirse.")
     perfil = perfil_de(actor)
     _validar_piscina(perfil, piscina)
+    ciclo = _ciclo_para_fecha(piscina, capturada_en, ciclo)
     antes = snapshot_jornada(jornada)
     version_anterior = jornada.version
     jornada.piscina = piscina
+    jornada.ciclo = ciclo
     jornada.capturada_en = capturada_en
     jornada.poblacion_estimada = poblacion_estimada
     jornada.observaciones = observaciones
@@ -339,11 +582,19 @@ def calcular_poblacion_teorica(piscina, hasta=None, excluir_jornada=None):
 
 
 @transaction.atomic
-def crear_movimiento(*, actor, tipo, cantidad, ocurrido_en, piscina_origen=None, piscina_destino=None, observaciones="", movimiento_id=None):
+def crear_movimiento(*, actor, tipo, cantidad, ocurrido_en, piscina_origen=None, piscina_destino=None, ciclo_origen=None, ciclo_destino=None, observaciones="", movimiento_id=None):
     perfil = perfil_de(actor)
     for piscina in (piscina_origen, piscina_destino):
         if piscina is not None:
             _validar_piscina(perfil, piscina)
+    if tipo == MovimientoPoblacion.Tipo.SIEMBRA:
+        raise ValidationError(
+            {"tipo": "La siembra se registra abriendo un ciclo productivo."}
+        )
+    if piscina_origen is not None:
+        ciclo_origen = _ciclo_para_fecha(piscina_origen, ocurrido_en, ciclo_origen)
+    if piscina_destino is not None:
+        ciclo_destino = _ciclo_para_fecha(piscina_destino, ocurrido_en, ciclo_destino)
     if movimiento_id:
         existente = MovimientoPoblacion.objects.select_for_update().filter(pk=movimiento_id).first()
         if existente:
@@ -356,6 +607,8 @@ def crear_movimiento(*, actor, tipo, cantidad, ocurrido_en, piscina_origen=None,
                 ocurrido_en=ocurrido_en,
                 piscina_origen=piscina_origen,
                 piscina_destino=piscina_destino,
+                ciclo_origen=ciclo_origen,
+                ciclo_destino=ciclo_destino,
                 observaciones=observaciones,
             ):
                 return existente, False
@@ -368,6 +621,8 @@ def crear_movimiento(*, actor, tipo, cantidad, ocurrido_en, piscina_origen=None,
         cantidad=cantidad,
         piscina_origen=piscina_origen,
         piscina_destino=piscina_destino,
+        ciclo_origen=ciclo_origen,
+        ciclo_destino=ciclo_destino,
         autor=perfil,
         ocurrido_en=ocurrido_en,
         observaciones=observaciones,
@@ -388,7 +643,7 @@ def crear_movimiento(*, actor, tipo, cantidad, ocurrido_en, piscina_origen=None,
 
 
 @transaction.atomic
-def corregir_movimiento(*, movimiento, actor, version_esperada, tipo, cantidad, ocurrido_en, piscina_origen=None, piscina_destino=None, observaciones="", motivo=""):
+def corregir_movimiento(*, movimiento, actor, version_esperada, tipo, cantidad, ocurrido_en, piscina_origen=None, piscina_destino=None, ciclo_origen=None, ciclo_destino=None, observaciones="", motivo=""):
     movimiento = MovimientoPoblacion.objects.select_for_update().get(pk=movimiento.pk)
     if not movimiento.puede_modificar(actor):
         raise PermissionDenied("Solo el autor o un administrador pueden corregir el movimiento.")
@@ -400,6 +655,14 @@ def corregir_movimiento(*, movimiento, actor, version_esperada, tipo, cantidad, 
     for piscina in (piscina_origen, piscina_destino):
         if piscina is not None:
             _validar_piscina(perfil, piscina)
+    if tipo == MovimientoPoblacion.Tipo.SIEMBRA:
+        raise ValidationError(
+            {"tipo": "La siembra se registra abriendo un ciclo productivo."}
+        )
+    if piscina_origen is not None:
+        ciclo_origen = _ciclo_para_fecha(piscina_origen, ocurrido_en, ciclo_origen)
+    if piscina_destino is not None:
+        ciclo_destino = _ciclo_para_fecha(piscina_destino, ocurrido_en, ciclo_destino)
     antes = snapshot_movimiento(movimiento)
     version_anterior = movimiento.version
     movimiento.tipo = tipo
@@ -407,6 +670,8 @@ def corregir_movimiento(*, movimiento, actor, version_esperada, tipo, cantidad, 
     movimiento.ocurrido_en = ocurrido_en
     movimiento.piscina_origen = piscina_origen
     movimiento.piscina_destino = piscina_destino
+    movimiento.ciclo_origen = ciclo_origen
+    movimiento.ciclo_destino = ciclo_destino
     movimiento.observaciones = observaciones
     movimiento.version += 1
     movimiento.full_clean()
@@ -456,7 +721,3 @@ def anular_movimiento(*, movimiento, actor, version_esperada, motivo):
         motivo=motivo,
     )
     return movimiento
-
-
-# Import al final para mantener legible la sección de servicios.
-from django.db import models  # noqa: E402

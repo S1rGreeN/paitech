@@ -1,4 +1,6 @@
 import uuid
+import hashlib
+import secrets
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -148,6 +150,189 @@ class Piscina(models.Model):
         return f"{self.codigo} · {self.nombre}"
 
 
+class CicloProductivo(models.Model):
+    class Estado(models.TextChoices):
+        ACTIVO = "ACTIVO", "Activo"
+        CERRADO = "CERRADO", "Cerrado"
+        ANULADO = "ANULADO", "Anulado"
+
+    class DestinoCierre(models.TextChoices):
+        VENTA = "VENTA", "Venta"
+        CONSUMO = "CONSUMO", "Consumo"
+        TRASLADO = "TRASLADO", "Traslado"
+        MORTALIDAD_TOTAL = "MORTALIDAD_TOTAL", "Mortalidad total"
+        OTRO = "OTRO", "Otro"
+
+    class Fuente(models.TextChoices):
+        WEB = "WEB", "Web"
+        ANDROID = "ANDROID", "Android"
+
+    class ConfianzaPrediccion(models.TextChoices):
+        SIN_DATOS = "SIN_DATOS", "Sin datos"
+        MUY_BAJA = "MUY_BAJA", "Muy baja"
+        BAJA = "BAJA", "Baja"
+        MEDIA = "MEDIA", "Media"
+
+    class OrigenPrediccion(models.TextChoices):
+        SERVIDOR = "SERVIDOR", "Servidor"
+        CACHE_ANDROID = "CACHE_ANDROID", "Caché Android"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    piscina = models.ForeignKey(
+        Piscina, on_delete=models.PROTECT, related_name="ciclos"
+    )
+    especie = models.ForeignKey(
+        Especie,
+        on_delete=models.PROTECT,
+        related_name="ciclos_productivos",
+        help_text="Instantánea histórica de la especie permanente de la piscina.",
+    )
+    numero = models.PositiveIntegerField()
+    estado = models.CharField(
+        max_length=10, choices=Estado.choices, default=Estado.ACTIVO
+    )
+    iniciado_en = models.DateTimeField()
+    poblacion_inicial = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    duracion_estimada_meses = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(60)],
+    )
+    observaciones_apertura = models.TextField(blank=True)
+    autor_apertura = models.ForeignKey(
+        Acuicultor,
+        on_delete=models.PROTECT,
+        related_name="ciclos_abiertos",
+    )
+    fuente = models.CharField(max_length=12, choices=Fuente.choices, default=Fuente.WEB)
+    dispositivo_id = models.CharField(max_length=120, blank=True)
+
+    cerrado_en = models.DateTimeField(null=True, blank=True)
+    destino_cierre = models.CharField(
+        max_length=20, choices=DestinoCierre.choices, blank=True
+    )
+    poblacion_final = models.PositiveIntegerField(null=True, blank=True)
+    peso_total_cosechado_kg = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+    )
+    observaciones_cierre = models.TextField(blank=True)
+    piscina_destino_cierre = models.ForeignKey(
+        Piscina,
+        on_delete=models.PROTECT,
+        related_name="ciclos_recibidos_al_cierre",
+        null=True,
+        blank=True,
+    )
+    autor_cierre = models.ForeignKey(
+        Acuicultor,
+        on_delete=models.PROTECT,
+        related_name="ciclos_cerrados",
+        null=True,
+        blank=True,
+    )
+
+    prediccion_poblacion_final = models.PositiveIntegerField(null=True, blank=True)
+    prediccion_min = models.PositiveIntegerField(null=True, blank=True)
+    prediccion_max = models.PositiveIntegerField(null=True, blank=True)
+    prediccion_tasa = models.DecimalField(
+        max_digits=8, decimal_places=6, null=True, blank=True
+    )
+    prediccion_ciclos_usados = models.PositiveSmallIntegerField(default=0)
+    prediccion_confianza = models.CharField(
+        max_length=12,
+        choices=ConfianzaPrediccion.choices,
+        default=ConfianzaPrediccion.SIN_DATOS,
+    )
+    prediccion_metodo_version = models.CharField(max_length=80, blank=True)
+    prediccion_calculada_en = models.DateTimeField(null=True, blank=True)
+    prediccion_datos_hasta = models.DateTimeField(null=True, blank=True)
+    prediccion_origen = models.CharField(
+        max_length=16,
+        choices=OrigenPrediccion.choices,
+        default=OrigenPrediccion.SERVIDOR,
+    )
+
+    version = models.PositiveIntegerField(default=1)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    modificado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-iniciado_en", "-numero"]
+        verbose_name = "ciclo productivo"
+        verbose_name_plural = "ciclos productivos"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["piscina", "numero"], name="uq_ciclo_numero_piscina"
+            ),
+            models.UniqueConstraint(
+                fields=["piscina"],
+                condition=Q(estado="ACTIVO"),
+                name="uq_ciclo_activo_piscina",
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1), name="ck_ciclo_version_positiva"
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(estado="ACTIVO", cerrado_en__isnull=True, autor_cierre__isnull=True,
+                      poblacion_final__isnull=True, destino_cierre="")
+                    | Q(estado="ANULADO")
+                    | Q(estado="CERRADO", cerrado_en__isnull=False,
+                        autor_cierre__isnull=False, poblacion_final__isnull=False)
+                ),
+                name="ck_ciclo_campos_cierre_estado",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["piscina", "estado"], name="ix_ciclo_piscina_estado"),
+            models.Index(fields=["piscina", "-iniciado_en"], name="ix_ciclo_piscina_inicio"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.piscina_id and self.especie_id != self.piscina.especie_id:
+            raise ValidationError({"especie": "El ciclo debe conservar la especie de la piscina."})
+        if self.estado == self.Estado.CERRADO:
+            faltantes = []
+            for campo in ("cerrado_en", "destino_cierre", "poblacion_final", "autor_cierre"):
+                if getattr(self, campo) in (None, ""):
+                    faltantes.append(campo)
+            if faltantes:
+                raise ValidationError({campo: "Este campo es obligatorio al cerrar." for campo in faltantes})
+            if self.cerrado_en and self.cerrado_en < self.iniciado_en:
+                raise ValidationError({"cerrado_en": "El cierre no puede ser anterior a la apertura."})
+            if (
+                self.destino_cierre == self.DestinoCierre.MORTALIDAD_TOTAL
+                and self.poblacion_final != 0
+            ):
+                raise ValidationError(
+                    {"poblacion_final": "La mortalidad total requiere población final cero."}
+                )
+        if (
+            self.piscina_destino_cierre_id
+            and self.piscina_destino_cierre_id == self.piscina_id
+        ):
+            raise ValidationError(
+                {"piscina_destino_cierre": "La piscina destino debe ser diferente."}
+            )
+        if self.piscina_destino_cierre_id:
+            if self.destino_cierre != self.DestinoCierre.TRASLADO:
+                raise ValidationError(
+                    {"piscina_destino_cierre": "Solo se indica para un cierre por traslado."}
+                )
+            if self.piscina_destino_cierre.especie_id != self.especie_id:
+                raise ValidationError(
+                    {"piscina_destino_cierre": "El traslado requiere la misma especie."}
+                )
+
+    def __str__(self):
+        return f"{self.piscina.codigo} · ciclo {self.numero}"
+
+
 class JornadaRegistro(models.Model):
     class Estado(models.TextChoices):
         BORRADOR = "BORRADOR", "Borrador"
@@ -163,6 +348,14 @@ class JornadaRegistro(models.Model):
         Piscina,
         on_delete=models.PROTECT,
         related_name="registros",
+    )
+    ciclo = models.ForeignKey(
+        CicloProductivo,
+        on_delete=models.PROTECT,
+        related_name="jornadas",
+        null=True,
+        blank=True,
+        help_text="Temporalmente nullable para migrar datos de desarrollo anteriores a 1.5.",
     )
     autor = models.ForeignKey(
         Acuicultor,
@@ -385,6 +578,20 @@ class MovimientoPoblacion(models.Model):
         null=True,
         blank=True,
     )
+    ciclo_origen = models.ForeignKey(
+        CicloProductivo,
+        on_delete=models.PROTECT,
+        related_name="movimientos_salida",
+        null=True,
+        blank=True,
+    )
+    ciclo_destino = models.ForeignKey(
+        CicloProductivo,
+        on_delete=models.PROTECT,
+        related_name="movimientos_entrada",
+        null=True,
+        blank=True,
+    )
     autor = models.ForeignKey(
         Acuicultor,
         on_delete=models.PROTECT,
@@ -426,6 +633,15 @@ class MovimientoPoblacion(models.Model):
         origen = self.piscina_origen_id is not None
         destino = self.piscina_destino_id is not None
 
+        if self.ciclo_origen_id and self.ciclo_origen.piscina_id != self.piscina_origen_id:
+            raise ValidationError({"ciclo_origen": "El ciclo no pertenece a la piscina de origen."})
+        if self.ciclo_destino_id and self.ciclo_destino.piscina_id != self.piscina_destino_id:
+            raise ValidationError({"ciclo_destino": "El ciclo no pertenece a la piscina de destino."})
+        if origen and self.tipo != self.Tipo.SIEMBRA and not self.ciclo_origen_id:
+            raise ValidationError({"ciclo_origen": "El movimiento requiere ciclo de origen."})
+        if destino and self.tipo != self.Tipo.SIEMBRA and not self.ciclo_destino_id:
+            raise ValidationError({"ciclo_destino": "El movimiento requiere ciclo de destino."})
+
         if origen and destino and self.piscina_origen_id == self.piscina_destino_id:
             raise ValidationError("La piscina de origen y destino deben ser distintas.")
         if self.tipo == self.Tipo.SIEMBRA and (origen or not destino):
@@ -452,6 +668,7 @@ class AuditoriaCambio(models.Model):
     class Entidad(models.TextChoices):
         JORNADA = "JORNADA", "Jornada"
         MOVIMIENTO = "MOVIMIENTO", "Movimiento"
+        CICLO = "CICLO", "Ciclo"
 
     class Accion(models.TextChoices):
         CREAR = "CREAR", "Crear"
@@ -483,3 +700,128 @@ class AuditoriaCambio(models.Model):
 
     def __str__(self):
         return f"{self.entidad} · {self.accion} · v{self.version_nueva}"
+
+
+class DispositivoSensor(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    piscina = models.ForeignKey(
+        Piscina, on_delete=models.PROTECT, related_name="dispositivos_sensor"
+    )
+    codigo = models.CharField(max_length=80, unique=True)
+    nombre = models.CharField(max_length=160)
+    selector = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    secreto_hash = models.CharField(max_length=64, blank=True, editable=False)
+    activo = models.BooleanField(
+        default=False,
+        help_text="Debe permanecer desactivado hasta habilitar formalmente la telemetría.",
+    )
+    instalado_en = models.DateTimeField(null=True, blank=True)
+    ultimo_uso_en = models.DateTimeField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["piscina", "codigo"]
+        verbose_name = "dispositivo sensor"
+        verbose_name_plural = "dispositivos sensores"
+
+    @staticmethod
+    def hash_secreto(secreto):
+        return hashlib.sha256(secreto.encode("utf-8")).hexdigest()
+
+    def emitir_credencial(self):
+        secreto = secrets.token_urlsafe(24)
+        self.secreto_hash = self.hash_secreto(secreto)
+        self.save(update_fields=["secreto_hash"])
+        return f"{self.selector}.{secreto}"
+
+    def __str__(self):
+        return f"{self.codigo} · {self.piscina.codigo}"
+
+
+class LecturaSensor(models.Model):
+    class Calidad(models.TextChoices):
+        COMPLETA = "COMPLETA", "Completa"
+        PARCIAL = "PARCIAL", "Parcial"
+        INVALIDA = "INVALIDA", "Inválida"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    dispositivo = models.ForeignKey(
+        DispositivoSensor, on_delete=models.PROTECT, related_name="lecturas"
+    )
+    piscina = models.ForeignKey(
+        Piscina, on_delete=models.PROTECT, related_name="lecturas_sensor"
+    )
+    ciclo = models.ForeignKey(
+        CicloProductivo,
+        on_delete=models.PROTECT,
+        related_name="lecturas_sensor",
+        null=True,
+        blank=True,
+    )
+    medida_en = models.DateTimeField()
+    recibida_en = models.DateTimeField(auto_now_add=True)
+    oxigeno_disuelto_mg_l = models.DecimalField(
+        max_digits=8,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(50)],
+    )
+    temperatura_c = models.DecimalField(
+        max_digits=7,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(-10), MaxValueValidator(60)],
+    )
+    turbidez_ntu = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100000)],
+    )
+    calidad = models.CharField(max_length=10, choices=Calidad.choices)
+    detalle_calidad = models.CharField(max_length=500, blank=True)
+    metadatos = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-medida_en", "-recibida_en"]
+        verbose_name = "lectura de sensor"
+        verbose_name_plural = "lecturas de sensores"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(oxigeno_disuelto_mg_l__isnull=False)
+                    | Q(temperatura_c__isnull=False)
+                    | Q(turbidez_ntu__isnull=False)
+                ),
+                name="ck_lectura_al_menos_un_valor",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["piscina", "-medida_en"], name="ix_lectura_piscina_fecha"),
+            models.Index(fields=["dispositivo", "-medida_en"], name="ix_lectura_dispositivo_fecha"),
+        ]
+
+    def clean(self):
+        super().clean()
+        valores = (
+            self.oxigeno_disuelto_mg_l,
+            self.temperatura_c,
+            self.turbidez_ntu,
+        )
+        presentes = sum(valor is not None for valor in valores)
+        if presentes == 0:
+            raise ValidationError("Una lectura requiere al menos un valor.")
+        if self.dispositivo_id and self.piscina_id != self.dispositivo.piscina_id:
+            raise ValidationError({"piscina": "La lectura no pertenece a la piscina del dispositivo."})
+        if self.ciclo_id and self.ciclo.piscina_id != self.piscina_id:
+            raise ValidationError({"ciclo": "El ciclo no pertenece a la piscina de la lectura."})
+        if self.calidad != self.Calidad.INVALIDA:
+            esperada = self.Calidad.COMPLETA if presentes == 3 else self.Calidad.PARCIAL
+            if self.calidad != esperada:
+                raise ValidationError({"calidad": f"La calidad calculada debe ser {esperada}."})
+
+    def __str__(self):
+        return f"{self.dispositivo.codigo} · {self.medida_en:%d/%m/%Y %H:%M}"

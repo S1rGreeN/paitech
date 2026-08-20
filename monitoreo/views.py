@@ -17,9 +17,18 @@ from cuentas.security import (
     registrar_login_fallido,
 )
 
-from .forms import CambioClaveInicialForm, JornadaForm, LoginForm, ObservacionPezFormSet
-from .models import JornadaRegistro, MedicionAgua, Piscina
-from .services import crear_jornada, perfil_de
+from .forms import (
+    CambioClaveInicialForm,
+    CicloAperturaForm,
+    CicloCierreForm,
+    JornadaForm,
+    LoginForm,
+    ObservacionPezFormSet,
+)
+from .models import CicloProductivo, JornadaRegistro, MedicionAgua, Piscina
+from .prediccion import calcular_prediccion
+from .recordatorios import recordatorios_piscina
+from .services import ConflictoVersion, cerrar_ciclo, crear_ciclo, crear_jornada, perfil_de
 
 
 def render_page(
@@ -32,6 +41,15 @@ def render_page(
     context = context or {}
     context.update({"request": request, "user": request.user, "messages": list(get_messages(request)), "csrf_token": get_token(request)})
     return render(request, template_name, context, status=status)
+
+
+def error_400(request, exception=None):
+    return render_page(
+        request,
+        "monitoreo/error_400.jinja",
+        {"request_id": getattr(request, "request_id", "no-disponible")},
+        status=400,
+    )
 
 
 @require_http_methods(["GET", "POST"])
@@ -102,7 +120,13 @@ def dashboard(request):
     tarjetas = []
     for piscina in piscinas:
         ultimo = piscina.registros.filter(estado=JornadaRegistro.Estado.COMPLETA).select_related("autor", "autor__user", "agua").first()
-        tarjetas.append({"piscina": piscina, "ultimo_registro": ultimo})
+        ciclo = piscina.ciclos.filter(estado=CicloProductivo.Estado.ACTIVO).first()
+        tarjetas.append({
+            "piscina": piscina,
+            "ultimo_registro": ultimo,
+            "ciclo_activo": ciclo,
+            "recordatorios": recordatorios_piscina(piscina),
+        })
     registros = JornadaRegistro.objects.filter(piscina__comunidad=perfil.comunidad, estado=JornadaRegistro.Estado.COMPLETA).select_related("piscina", "autor", "autor__user", "agua")
     contexto = {
         "tarjetas": tarjetas,
@@ -121,7 +145,16 @@ def piscina_detalle(request, piscina_id):
     piscina = get_object_or_404(Piscina, pk=piscina_id, comunidad=perfil.comunidad, activa=True)
     registros = piscina.registros.filter(estado=JornadaRegistro.Estado.COMPLETA).select_related("autor", "autor__user", "agua").prefetch_related("muestra_biometrica__peces")[:30]
     promedio_ph = MedicionAgua.objects.filter(jornada__piscina=piscina, jornada__estado=JornadaRegistro.Estado.COMPLETA).aggregate(valor=Avg("ph"))["valor"]
-    return render_page(request, "monitoreo/piscina_detalle.jinja", {"piscina": piscina, "registros": registros, "promedio_ph": promedio_ph})
+    ciclo_activo = piscina.ciclos.filter(estado=CicloProductivo.Estado.ACTIVO).select_related("autor_apertura", "autor_apertura__user").first()
+    ciclos = piscina.ciclos.select_related("autor_apertura", "autor_cierre")[:20]
+    return render_page(request, "monitoreo/piscina_detalle.jinja", {
+        "piscina": piscina,
+        "registros": registros,
+        "promedio_ph": promedio_ph,
+        "ciclo_activo": ciclo_activo,
+        "ciclos": ciclos,
+        "recordatorios": recordatorios_piscina(piscina),
+    })
 
 
 @login_required
@@ -132,6 +165,10 @@ def registro_nuevo(request, piscina_id):
     if piscina.tipo != Piscina.Tipo.PECES:
         messages.info(request, "Lombricultura está planificada como Próximamente.")
         return redirect("monitoreo:piscina_detalle", piscina_id=piscina.id)
+    ciclo = piscina.ciclos.filter(estado=CicloProductivo.Estado.ACTIVO).first()
+    if ciclo is None:
+        messages.info(request, "Primero debes iniciar un ciclo productivo para esta piscina.")
+        return redirect("monitoreo:ciclo_abrir", piscina_id=piscina.id)
 
     form = JornadaForm(request.POST or None)
     formset = ObservacionPezFormSet(request.POST or None, prefix="muestras")
@@ -140,6 +177,7 @@ def registro_nuevo(request, piscina_id):
         jornada, _ = crear_jornada(
             actor=request.user,
             piscina=piscina,
+            ciclo=ciclo,
             capturada_en=datos["capturada_en"],
             poblacion_estimada=datos["poblacion_estimada"],
             observaciones=datos["observaciones"],
@@ -149,7 +187,77 @@ def registro_nuevo(request, piscina_id):
         )
         messages.success(request, "Jornada guardada correctamente.")
         return redirect("monitoreo:registro_detalle", registro_id=jornada.id)
-    return render_page(request, "monitoreo/registro_form.jinja", {"piscina": piscina, "form": form, "formset": formset})
+    return render_page(request, "monitoreo/registro_form.jinja", {"piscina": piscina, "ciclo": ciclo, "form": form, "formset": formset})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def ciclo_abrir(request, piscina_id):
+    perfil = perfil_de(request.user)
+    piscina = get_object_or_404(
+        Piscina,
+        pk=piscina_id,
+        comunidad=perfil.comunidad,
+        activa=True,
+        tipo=Piscina.Tipo.PECES,
+    )
+    activo = piscina.ciclos.filter(estado=CicloProductivo.Estado.ACTIVO).first()
+    if activo:
+        messages.info(request, f"La piscina ya tiene activo el ciclo {activo.numero}.")
+        return redirect("monitoreo:piscina_detalle", piscina_id=piscina.id)
+    form = CicloAperturaForm(request.POST or None)
+    prediccion = None
+    if request.method == "POST" and form.is_valid():
+        prediccion = calcular_prediccion(piscina, form.cleaned_data["poblacion_inicial"])
+        if "confirmar" in request.POST:
+            try:
+                ciclo, _ = crear_ciclo(
+                    actor=request.user,
+                    piscina=piscina,
+                    fuente=CicloProductivo.Fuente.WEB,
+                    **form.cleaned_data,
+                )
+            except ConflictoVersion as error:
+                form.add_error(None, str(error))
+            else:
+                messages.success(request, f"Ciclo {ciclo.numero} iniciado correctamente.")
+                return redirect("monitoreo:piscina_detalle", piscina_id=piscina.id)
+    return render_page(
+        request,
+        "monitoreo/ciclo_abrir.jinja",
+        {"piscina": piscina, "form": form, "prediccion": prediccion},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def ciclo_cerrar(request, ciclo_id):
+    perfil = perfil_de(request.user)
+    ciclo = get_object_or_404(
+        CicloProductivo.objects.select_related("piscina", "especie"),
+        pk=ciclo_id,
+        piscina__comunidad=perfil.comunidad,
+        estado=CicloProductivo.Estado.ACTIVO,
+    )
+    form = CicloCierreForm(request.POST or None, ciclo=ciclo)
+    if request.method == "POST" and form.is_valid():
+        try:
+            ciclo, _ = cerrar_ciclo(
+                ciclo=ciclo,
+                actor=request.user,
+                version_esperada=ciclo.version,
+                **form.cleaned_data,
+            )
+        except ConflictoVersion as error:
+            form.add_error(None, str(error))
+        else:
+            messages.success(request, f"Ciclo {ciclo.numero} cerrado correctamente.")
+            return redirect("monitoreo:piscina_detalle", piscina_id=ciclo.piscina_id)
+    return render_page(
+        request,
+        "monitoreo/ciclo_cerrar.jinja",
+        {"ciclo": ciclo, "piscina": ciclo.piscina, "form": form},
+    )
 
 
 @login_required

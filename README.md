@@ -2,15 +2,19 @@
 
 Backend, web comunitaria y API REST del sistema de monitoreo acuícola de Paipayales.
 
-## Alcance v1.4
+## Alcance v1.5-dev
 
 - Usuarios administrados en Django e inicio de sesión por correo.
 - Comunidad, especies y piscinas; una especie permanente por piscina de peces.
+- Ciclos productivos desde población inicial hasta cierre completo de la cohorte.
+- Predicción transparente por mediana de supervivencia histórica de la misma piscina.
 - Jornadas con agua, biometría o ambos bloques y población estimada obligatoria.
+- Recordatorios no bloqueantes: agua semanal y biometría mensual.
 - Peces anónimos con peso en gramos y longitud total en centímetros.
 - Movimientos explícitos de población y cálculo de población teórica.
 - Correcciones con versión optimista y anulaciones lógicas auditadas.
 - API para Android con UUID idempotentes y semáforo comunitario.
+- Estructura futura de sensores horarios vía API, deshabilitada por configuración.
 - Lombricultura visible como “Próximamente”; laboratorio fuera de v1.4.
 - Neon PostgreSQL como base compartida y Railway como destino de despliegue.
 
@@ -30,7 +34,8 @@ python manage.py seed_demo
 python manage.py runserver
 ```
 
-La v1.4 usa `db_v14.sqlite3`. El antiguo `db.sqlite3` no se modifica y queda como respaldo del prototipo.
+La base local conserva el archivo `db_v14.sqlite3` y aplica la migración de
+v1.5. El antiguo `db.sqlite3` no se modifica y queda como respaldo del prototipo.
 
 El comando muestra credenciales aleatorias únicamente cuando crea las cuentas.
 Si las cuentas ya existen y necesitas claves nuevas, ejecuta:
@@ -132,6 +137,26 @@ python manage.py test
 python manage.py collectstatic --noinput
 ```
 
+## Limpieza de datos ficticios en Development
+
+La limpieza operativa nunca se ejecuta dentro de una migración. Primero se
+revisan los conteos sin modificar nada:
+
+```powershell
+python manage.py limpiar_datos_operativos_desarrollo
+```
+
+Solo después de comprobar que Railway/Neon corresponden al entorno
+`development`, se confirma explícitamente:
+
+```powershell
+python manage.py limpiar_datos_operativos_desarrollo --ejecutar --confirmar BORRAR-DATOS-DESARROLLO
+```
+
+El comando rechaza producción y elimina jornadas, movimientos, ciclos,
+auditorías operativas, lecturas y dispositivos sensores ficticios. Conserva
+usuarios, perfiles, comunidad, especies y piscinas.
+
 ## Railway + Neon
 
 1. Crear un servicio Railway desde este repositorio y seleccionar la rama `dev` durante las pruebas.
@@ -146,5 +171,6 @@ python manage.py collectstatic --noinput
 8. Validar `GET /api/v1/health/` antes de apuntar Android al dominio.
 9. Programar `python manage.py limpiar_eventos_seguridad` diariamente para
    aplicar la retención de 30 días de eventos de acceso.
+10. Mantener `SENSORES_HABILITADOS=False` hasta aprobar el hardware y sus claves.
 
 No se guardan credenciales de Neon en la aplicación Android. Django es la única capa que accede a la base central.

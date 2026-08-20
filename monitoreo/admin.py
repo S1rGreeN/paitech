@@ -3,9 +3,12 @@ from django.contrib import admin
 from .models import (
     Acuicultor,
     AuditoriaCambio,
+    CicloProductivo,
     Comunidad,
+    DispositivoSensor,
     Especie,
     JornadaRegistro,
+    LecturaSensor,
     MedicionAgua,
     MovimientoPoblacion,
     MuestraBiometrica,
@@ -60,7 +63,7 @@ class MedicionAguaInline(admin.StackedInline):
 
 @admin.register(JornadaRegistro)
 class JornadaRegistroAdmin(admin.ModelAdmin):
-    list_display = ("id", "piscina", "capturada_en", "poblacion_estimada", "autor", "estado", "version", "fuente")
+    list_display = ("id", "piscina", "ciclo", "capturada_en", "poblacion_estimada", "autor", "estado", "version", "fuente")
     list_filter = ("estado", "fuente", "piscina")
     search_fields = ("piscina__nombre", "piscina__codigo", "autor__nickname", "autor__user__email")
     date_hierarchy = "capturada_en"
@@ -86,6 +89,48 @@ class MovimientoPoblacionAdmin(admin.ModelAdmin):
     readonly_fields = ("version", "creado_en", "modificado_en", "anulado_en")
 
 
+@admin.register(CicloProductivo)
+class CicloProductivoAdmin(admin.ModelAdmin):
+    list_display = (
+        "piscina", "numero", "estado", "iniciado_en", "poblacion_inicial",
+        "cerrado_en", "poblacion_final", "version",
+    )
+    list_filter = ("estado", "piscina", "destino_cierre", "fuente")
+    search_fields = ("piscina__codigo", "piscina__nombre")
+    readonly_fields = (
+        "especie", "numero", "version", "creado_en", "modificado_en",
+        "prediccion_poblacion_final", "prediccion_min", "prediccion_max",
+        "prediccion_tasa", "prediccion_ciclos_usados", "prediccion_confianza",
+        "prediccion_metodo_version", "prediccion_calculada_en",
+        "prediccion_datos_hasta", "prediccion_origen",
+    )
+
+
+@admin.register(DispositivoSensor)
+class DispositivoSensorAdmin(admin.ModelAdmin):
+    list_display = ("codigo", "nombre", "piscina", "activo", "instalado_en", "ultimo_uso_en")
+    list_filter = ("activo", "piscina")
+    search_fields = ("codigo", "nombre", "piscina__codigo")
+    readonly_fields = ("selector", "secreto_hash", "ultimo_uso_en", "creado_en")
+
+
+@admin.register(LecturaSensor)
+class LecturaSensorAdmin(admin.ModelAdmin):
+    list_display = ("dispositivo", "piscina", "ciclo", "medida_en", "calidad")
+    list_filter = ("calidad", "piscina", "dispositivo")
+    date_hierarchy = "medida_en"
+    readonly_fields = tuple(campo.name for campo in LecturaSensor._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(AuditoriaCambio)
 class AuditoriaCambioAdmin(admin.ModelAdmin):
     list_display = ("entidad", "entidad_uuid", "accion", "version_nueva", "actor", "fecha")
@@ -101,3 +146,4 @@ class AuditoriaCambioAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+    DispositivoSensor,

@@ -1,4 +1,4 @@
-# Seguridad de PaiPayTech v1.4
+# Seguridad de PaiPayTech v1.5-dev
 
 Este documento registra controles verificables y reglas que no deben romperse.
 No sustituye una auditoría de seguridad externa antes de manejar datos reales.
@@ -73,6 +73,8 @@ https://docs.djangoproject.com/en/5.2/topics/security/#sql-injection-protection
 - Los eventos de acceso se conservan 30 días. Los accesos eliminan
   oportunísticamente eventos antiguos y el comando diario recomendado es
   `python manage.py limpiar_eventos_seguridad`.
+- Toda respuesta incluye `X-Request-ID`. Los HTTP 400 registran únicamente
+  identificador, método y ruta: nunca cuerpo, contraseña, token, cookie ni query.
 
 ## Seguridad local de Android
 
@@ -109,6 +111,9 @@ Antes de exponer el servicio:
   `inicializar_catalogo_paipayales` y crear usuarios con entrada interactiva;
 - no activar HSTS prolongado hasta verificar primero dominio y HTTPS; después
   aumentarlo gradualmente;
+- mantener deshabilitada la ingestión de sensores hasta provisionar dispositivos;
+- los sensores futuros usarán secretos aleatorios almacenados solo como hash,
+  quedarán limitados a una piscina y escribirán únicamente mediante Django;
 - rotar inmediatamente cualquier secreto que aparezca en capturas, logs, Git o
   conversaciones.
 
@@ -116,7 +121,7 @@ Railway permite sellar variables sensibles. Neon exige conexiones TLS. La guía
 paso a paso se realizará junto con el propietario cuando llegue el hito de
 despliegue; no se copiarán secretos en archivos versionados.
 
-## Controles todavía pendientes antes de v1.4 final
+## Controles todavía pendientes antes de v1.5 final
 
 - ejecutar pruebas dinámicas contra el despliegue de desarrollo;
 - revisar dependencias y alertas de vulnerabilidades;

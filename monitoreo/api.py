@@ -1,12 +1,14 @@
 from django.contrib.auth import authenticate
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import PermissionDenied, ValidationError as DjangoValidationError
 from decimal import Decimal
 
-from django.db.models import Avg
-from django.db import connection
+from django.db.models import Avg, Q
+from django.db import connection, transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -28,21 +30,29 @@ from .calidad_agua import (
     validar_ph_kit,
 )
 from .models import (
+    CicloProductivo,
+    DispositivoSensor,
     Especie,
     JornadaRegistro,
+    LecturaSensor,
     MedicionAgua,
     MovimientoPoblacion,
     MuestraBiometrica,
     Piscina,
 )
+from .recordatorios import recordatorios_piscina
+from .prediccion import calcular_prediccion
+from .sensor_authentication import SensorAuthentication
 from .semaforo import evaluar_agua
 from .services import (
     ConflictoVersion,
     anular_movimiento,
     anular_jornada,
     calcular_poblacion_teorica,
+    cerrar_ciclo,
     corregir_jornada,
     corregir_movimiento,
+    crear_ciclo,
     crear_jornada,
     crear_movimiento,
     perfil_de,
@@ -115,6 +125,7 @@ class CambioClaveSerializer(serializers.Serializer):
 class JornadaEscrituraSerializer(serializers.Serializer):
     id = serializers.UUIDField(required=False)
     piscina = serializers.UUIDField()
+    ciclo = serializers.UUIDField(required=False, allow_null=True)
     capturada_en = serializers.DateTimeField()
     poblacion_estimada = serializers.IntegerField(min_value=0)
     observaciones = serializers.CharField(
@@ -145,6 +156,8 @@ class MovimientoEscrituraSerializer(serializers.Serializer):
     cantidad = serializers.IntegerField(min_value=1)
     piscina_origen = serializers.UUIDField(required=False, allow_null=True)
     piscina_destino = serializers.UUIDField(required=False, allow_null=True)
+    ciclo_origen = serializers.UUIDField(required=False, allow_null=True)
+    ciclo_destino = serializers.UUIDField(required=False, allow_null=True)
     ocurrido_en = serializers.DateTimeField()
     observaciones = serializers.CharField(
         required=False, allow_blank=True, default="", max_length=5000
@@ -153,6 +166,98 @@ class MovimientoEscrituraSerializer(serializers.Serializer):
     motivo_correccion = serializers.CharField(
         required=False, allow_blank=True, default="", max_length=1000
     )
+
+
+class PrediccionCacheSerializer(serializers.Serializer):
+    prediccion_poblacion_final = serializers.IntegerField(min_value=0)
+    prediccion_min = serializers.IntegerField(min_value=0)
+    prediccion_max = serializers.IntegerField(min_value=0)
+    prediccion_tasa = serializers.DecimalField(max_digits=8, decimal_places=6, min_value=0)
+    prediccion_ciclos_usados = serializers.IntegerField(min_value=1)
+    prediccion_confianza = serializers.ChoiceField(
+        choices=CicloProductivo.ConfianzaPrediccion.choices
+    )
+    prediccion_metodo_version = serializers.CharField(max_length=80)
+    prediccion_calculada_en = serializers.DateTimeField()
+    prediccion_datos_hasta = serializers.DateTimeField()
+
+
+class CicloAperturaSerializer(serializers.Serializer):
+    id = serializers.UUIDField(required=False)
+    piscina = serializers.UUIDField()
+    iniciado_en = serializers.DateTimeField()
+    poblacion_inicial = serializers.IntegerField(min_value=1)
+    duracion_estimada_meses = serializers.IntegerField(
+        min_value=1, max_value=60, required=False, allow_null=True
+    )
+    observaciones_apertura = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=5000
+    )
+    dispositivo_id = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=120
+    )
+    prediccion_cache = PrediccionCacheSerializer(required=False, allow_null=True)
+
+
+class CicloCierreSerializer(serializers.Serializer):
+    version = serializers.IntegerField(min_value=1)
+    cerrado_en = serializers.DateTimeField()
+    destino_cierre = serializers.ChoiceField(choices=CicloProductivo.DestinoCierre.choices)
+    poblacion_final = serializers.IntegerField(min_value=0)
+    peso_total_cosechado_kg = serializers.DecimalField(
+        max_digits=12, decimal_places=3, min_value=0, required=False, allow_null=True
+    )
+    observaciones_cierre = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=5000
+    )
+    piscina_destino_cierre = serializers.UUIDField(required=False, allow_null=True)
+
+
+class LecturaSensorSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    medida_en = serializers.DateTimeField()
+    oxigeno_disuelto_mg_l = serializers.DecimalField(
+        max_digits=8, decimal_places=3, min_value=0, max_value=50,
+        required=False, allow_null=True
+    )
+    temperatura_c = serializers.DecimalField(
+        max_digits=7, decimal_places=3, min_value=-10, max_value=60,
+        required=False, allow_null=True
+    )
+    turbidez_ntu = serializers.DecimalField(
+        max_digits=12, decimal_places=3, min_value=0, max_value=100000,
+        required=False, allow_null=True
+    )
+    calidad = serializers.ChoiceField(
+        choices=LecturaSensor.Calidad.choices, required=False
+    )
+    detalle_calidad = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=500
+    )
+    metadatos = serializers.JSONField(required=False, default=dict)
+
+    def validate(self, attrs):
+        campos = (
+            "oxigeno_disuelto_mg_l",
+            "temperatura_c",
+            "turbidez_ntu",
+        )
+        presentes = sum(attrs.get(campo) is not None for campo in campos)
+        if presentes == 0:
+            raise serializers.ValidationError("La lectura requiere al menos un valor.")
+        calculada = (
+            LecturaSensor.Calidad.COMPLETA
+            if presentes == 3
+            else LecturaSensor.Calidad.PARCIAL
+        )
+        if attrs.get("calidad") not in (None, LecturaSensor.Calidad.INVALIDA, calculada):
+            raise serializers.ValidationError({"calidad": f"Debe ser {calculada}."})
+        attrs["calidad"] = attrs.get("calidad") or calculada
+        return attrs
+
+
+class LoteLecturasSensorSerializer(serializers.Serializer):
+    lecturas = LecturaSensorSerializer(many=True, min_length=1, max_length=1000)
 
 
 def _errores_django(error):
@@ -218,6 +323,7 @@ def jornada_json(jornada, incluir_advertencia=True):
     resultado = {
         "id": str(jornada.id),
         "piscina": str(jornada.piscina_id),
+        "ciclo": str(jornada.ciclo_id) if jornada.ciclo_id else None,
         "piscina_codigo": jornada.piscina.codigo,
         "especie": jornada.piscina.especie.nombre_comun if jornada.piscina.especie else None,
         "autor": _autor_json(jornada.autor),
@@ -253,12 +359,79 @@ def movimiento_json(movimiento):
         "cantidad": movimiento.cantidad,
         "piscina_origen": str(movimiento.piscina_origen_id) if movimiento.piscina_origen_id else None,
         "piscina_destino": str(movimiento.piscina_destino_id) if movimiento.piscina_destino_id else None,
+        "ciclo_origen": str(movimiento.ciclo_origen_id) if movimiento.ciclo_origen_id else None,
+        "ciclo_destino": str(movimiento.ciclo_destino_id) if movimiento.ciclo_destino_id else None,
         "autor": _autor_json(movimiento.autor),
         "ocurrido_en": movimiento.ocurrido_en.isoformat(),
         "observaciones": movimiento.observaciones,
         "estado": movimiento.estado,
         "version": movimiento.version,
     }
+
+
+def ciclo_json(ciclo):
+    return {
+        "id": str(ciclo.id),
+        "piscina": str(ciclo.piscina_id),
+        "piscina_codigo": ciclo.piscina.codigo,
+        "especie": {
+            "id": ciclo.especie_id,
+            "nombre_comun": ciclo.especie.nombre_comun,
+            "nombre_cientifico": ciclo.especie.nombre_cientifico,
+        },
+        "numero": ciclo.numero,
+        "estado": ciclo.estado,
+        "iniciado_en": ciclo.iniciado_en.isoformat(),
+        "poblacion_inicial": ciclo.poblacion_inicial,
+        "duracion_estimada_meses": ciclo.duracion_estimada_meses,
+        "observaciones_apertura": ciclo.observaciones_apertura,
+        "autor_apertura": _autor_json(ciclo.autor_apertura),
+        "fuente": ciclo.fuente,
+        "dispositivo_id": ciclo.dispositivo_id,
+        "cerrado_en": ciclo.cerrado_en.isoformat() if ciclo.cerrado_en else None,
+        "destino_cierre": ciclo.destino_cierre or None,
+        "poblacion_final": ciclo.poblacion_final,
+        "peso_total_cosechado_kg": (
+            str(ciclo.peso_total_cosechado_kg)
+            if ciclo.peso_total_cosechado_kg is not None
+            else None
+        ),
+        "observaciones_cierre": ciclo.observaciones_cierre,
+        "piscina_destino_cierre": (
+            str(ciclo.piscina_destino_cierre_id)
+            if ciclo.piscina_destino_cierre_id
+            else None
+        ),
+        "autor_cierre": _autor_json(ciclo.autor_cierre) if ciclo.autor_cierre else None,
+        "prediccion": {
+            "poblacion_final": ciclo.prediccion_poblacion_final,
+            "minimo": ciclo.prediccion_min,
+            "maximo": ciclo.prediccion_max,
+            "tasa": str(ciclo.prediccion_tasa) if ciclo.prediccion_tasa is not None else None,
+            "ciclos_usados": ciclo.prediccion_ciclos_usados,
+            "confianza": ciclo.prediccion_confianza,
+            "metodo_version": ciclo.prediccion_metodo_version,
+            "calculada_en": (
+                ciclo.prediccion_calculada_en.isoformat()
+                if ciclo.prediccion_calculada_en
+                else None
+            ),
+            "datos_hasta": (
+                ciclo.prediccion_datos_hasta.isoformat()
+                if ciclo.prediccion_datos_hasta
+                else None
+            ),
+            "origen": ciclo.prediccion_origen,
+        },
+        "version": ciclo.version,
+    }
+
+
+def recordatorios_json(piscina):
+    resultado = recordatorios_piscina(piscina)
+    ciclo = resultado.pop("ciclo")
+    resultado["ciclo_id"] = str(ciclo.id) if ciclo else None
+    return resultado
 
 
 class LoginApiView(APIView):
@@ -384,8 +557,12 @@ class PiscinasApiView(APIView):
             activa=True,
             tipo=Piscina.Tipo.PECES,
         ).select_related("especie")
-        return Response(
-            [
+        resultado = []
+        for item in piscinas:
+            ciclo_activo = item.ciclos.filter(
+                estado=CicloProductivo.Estado.ACTIVO
+            ).select_related("especie", "autor_apertura", "autor_apertura__user").first()
+            resultado.append(
                 {
                     "id": str(item.id),
                     "codigo": item.codigo,
@@ -395,9 +572,129 @@ class PiscinasApiView(APIView):
                     "area_m2": str(item.area_m2) if item.area_m2 is not None else None,
                     "especie": ({"id": item.especie_id, "nombre_comun": item.especie.nombre_comun} if item.especie else None),
                     "poblacion_teorica_actual": calcular_poblacion_teorica(item),
+                    "ciclo_activo": ciclo_json(ciclo_activo) if ciclo_activo else None,
+                    "recordatorios": recordatorios_json(item),
                 }
-                for item in piscinas
-            ]
+            )
+        return Response(resultado)
+
+
+class CiclosApiView(APIView):
+    def get(self, request):
+        perfil = perfil_de(request.user)
+        ciclos = (
+            CicloProductivo.objects.filter(piscina__comunidad=perfil.comunidad)
+            .select_related(
+                "piscina",
+                "especie",
+                "autor_apertura",
+                "autor_apertura__user",
+                "autor_cierre",
+                "autor_cierre__user",
+            )
+            .order_by("-iniciado_en")[:200]
+        )
+        return Response([ciclo_json(item) for item in ciclos])
+
+    def post(self, request):
+        serializer = CicloAperturaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        piscina = get_object_or_404(Piscina, pk=datos.pop("piscina"))
+        try:
+            ciclo, creado = crear_ciclo(
+                actor=request.user,
+                piscina=piscina,
+                ciclo_id=datos.pop("id", None),
+                prediccion_cache=datos.pop("prediccion_cache", None),
+                fuente=CicloProductivo.Fuente.ANDROID,
+                **datos,
+            )
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response(
+            ciclo_json(ciclo),
+            status=status.HTTP_201_CREATED if creado else status.HTTP_200_OK,
+        )
+
+
+class CicloDetalleApiView(APIView):
+    def _obtener(self, request, ciclo_id):
+        perfil = perfil_de(request.user)
+        return get_object_or_404(
+            CicloProductivo.objects.filter(piscina__comunidad=perfil.comunidad)
+            .select_related(
+                "piscina",
+                "especie",
+                "autor_apertura",
+                "autor_apertura__user",
+                "autor_cierre",
+                "autor_cierre__user",
+            ),
+            pk=ciclo_id,
+        )
+
+    def get(self, request, ciclo_id):
+        return Response(ciclo_json(self._obtener(request, ciclo_id)))
+
+
+class CicloCerrarApiView(CicloDetalleApiView):
+    def post(self, request, ciclo_id):
+        ciclo = self._obtener(request, ciclo_id)
+        serializer = CicloCierreSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        piscina_destino_id = datos.pop("piscina_destino_cierre", None)
+        piscina_destino = (
+            get_object_or_404(Piscina, pk=piscina_destino_id)
+            if piscina_destino_id
+            else None
+        )
+        try:
+            ciclo, _ = cerrar_ciclo(
+                ciclo=ciclo,
+                actor=request.user,
+                version_esperada=datos.pop("version"),
+                piscina_destino_cierre=piscina_destino,
+                **datos,
+            )
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response(ciclo_json(ciclo))
+
+
+class PrediccionCicloApiView(APIView):
+    def get(self, request):
+        perfil = perfil_de(request.user)
+        piscina = get_object_or_404(
+            Piscina,
+            pk=request.query_params.get("piscina"),
+            comunidad=perfil.comunidad,
+            activa=True,
+            tipo=Piscina.Tipo.PECES,
+        )
+        try:
+            poblacion = int(request.query_params.get("poblacion_inicial", ""))
+        except ValueError:
+            return Response(
+                {"poblacion_inicial": ["Debe ser un entero positivo."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if poblacion < 1:
+            return Response(
+                {"poblacion_inicial": ["Debe ser mayor que cero."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        prediccion = calcular_prediccion(piscina, poblacion)
+        return Response(
+            {
+                clave.removeprefix("prediccion_"): (
+                    valor.isoformat() if hasattr(valor, "isoformat") else str(valor)
+                    if isinstance(valor, Decimal)
+                    else valor
+                )
+                for clave, valor in prediccion.items()
+            }
         )
 
 
@@ -405,8 +702,8 @@ class JornadasApiView(APIView):
     def get(self, request):
         perfil = perfil_de(request.user)
         jornadas = (
-            JornadaRegistro.objects.filter(autor=perfil)
-            .select_related("piscina", "piscina__especie", "autor", "autor__user")
+            JornadaRegistro.objects.filter(piscina__comunidad=perfil.comunidad)
+            .select_related("piscina", "piscina__especie", "ciclo", "autor", "autor__user")
             .prefetch_related("muestra_biometrica__peces")
         )
         return Response([jornada_json(item) for item in jornadas[:200]])
@@ -416,12 +713,15 @@ class JornadasApiView(APIView):
         serializer.is_valid(raise_exception=True)
         datos = serializer.validated_data
         piscina = get_object_or_404(Piscina, pk=datos.pop("piscina"))
+        ciclo_id = datos.pop("ciclo", None)
+        ciclo = get_object_or_404(CicloProductivo, pk=ciclo_id) if ciclo_id else None
         datos.pop("version", None)
         datos.pop("motivo_correccion", None)
         try:
             jornada, creada = crear_jornada(
                 actor=request.user,
                 piscina=piscina,
+                ciclo=ciclo,
                 jornada_id=datos.pop("id", None),
                 fuente=JornadaRegistro.Fuente.ANDROID,
                 **datos,
@@ -434,9 +734,9 @@ class JornadasApiView(APIView):
 class JornadaDetalleApiView(APIView):
     def _obtener(self, request, jornada_id):
         perfil = perfil_de(request.user)
-        consulta = JornadaRegistro.objects.select_related("piscina", "piscina__especie", "autor", "autor__user")
-        if not request.user.is_superuser:
-            consulta = consulta.filter(autor=perfil)
+        consulta = JornadaRegistro.objects.filter(
+            piscina__comunidad=perfil.comunidad
+        ).select_related("piscina", "piscina__especie", "ciclo", "autor", "autor__user")
         return get_object_or_404(consulta, pk=jornada_id)
 
     def get(self, request, jornada_id):
@@ -451,6 +751,8 @@ class JornadaDetalleApiView(APIView):
         if version is None:
             return Response({"version": ["La versión actual es obligatoria para corregir."]}, status=status.HTTP_400_BAD_REQUEST)
         piscina = get_object_or_404(Piscina, pk=datos.pop("piscina"))
+        ciclo_id = datos.pop("ciclo", None)
+        ciclo = get_object_or_404(CicloProductivo, pk=ciclo_id) if ciclo_id else None
         datos.pop("id", None)
         motivo = datos.pop("motivo_correccion", "")
         try:
@@ -459,6 +761,7 @@ class JornadaDetalleApiView(APIView):
                 actor=request.user,
                 version_esperada=version,
                 piscina=piscina,
+                ciclo=ciclo,
                 motivo=motivo,
                 **datos,
             )
@@ -484,7 +787,10 @@ class JornadaAnularApiView(APIView):
 class MovimientosApiView(APIView):
     def get(self, request):
         perfil = perfil_de(request.user)
-        movimientos = MovimientoPoblacion.objects.filter(autor=perfil).select_related("autor", "autor__user")[:200]
+        movimientos = MovimientoPoblacion.objects.filter(
+            Q(piscina_origen__comunidad=perfil.comunidad)
+            | Q(piscina_destino__comunidad=perfil.comunidad)
+        ).select_related("autor", "autor__user")[:200]
         return Response([movimiento_json(item) for item in movimientos])
 
     def post(self, request):
@@ -495,13 +801,19 @@ class MovimientosApiView(APIView):
         datos.pop("motivo_correccion", None)
         origen_id = datos.pop("piscina_origen", None)
         destino_id = datos.pop("piscina_destino", None)
+        ciclo_origen_id = datos.pop("ciclo_origen", None)
+        ciclo_destino_id = datos.pop("ciclo_destino", None)
         origen = get_object_or_404(Piscina, pk=origen_id) if origen_id else None
         destino = get_object_or_404(Piscina, pk=destino_id) if destino_id else None
+        ciclo_origen = get_object_or_404(CicloProductivo, pk=ciclo_origen_id) if ciclo_origen_id else None
+        ciclo_destino = get_object_or_404(CicloProductivo, pk=ciclo_destino_id) if ciclo_destino_id else None
         try:
             movimiento, creado = crear_movimiento(
                 actor=request.user,
                 piscina_origen=origen,
                 piscina_destino=destino,
+                ciclo_origen=ciclo_origen,
+                ciclo_destino=ciclo_destino,
                 movimiento_id=datos.pop("id", None),
                 **datos,
             )
@@ -513,9 +825,10 @@ class MovimientosApiView(APIView):
 class MovimientoDetalleApiView(APIView):
     def _obtener(self, request, movimiento_id):
         perfil = perfil_de(request.user)
-        consulta = MovimientoPoblacion.objects.select_related("autor", "autor__user")
-        if not request.user.is_superuser:
-            consulta = consulta.filter(autor=perfil)
+        consulta = MovimientoPoblacion.objects.filter(
+            Q(piscina_origen__comunidad=perfil.comunidad)
+            | Q(piscina_destino__comunidad=perfil.comunidad)
+        ).select_related("autor", "autor__user")
         return get_object_or_404(consulta, pk=movimiento_id)
 
     def get(self, request, movimiento_id):
@@ -531,8 +844,12 @@ class MovimientoDetalleApiView(APIView):
             return Response({"version": ["La versión actual es obligatoria para corregir."]}, status=status.HTTP_400_BAD_REQUEST)
         origen_id = datos.pop("piscina_origen", None)
         destino_id = datos.pop("piscina_destino", None)
+        ciclo_origen_id = datos.pop("ciclo_origen", None)
+        ciclo_destino_id = datos.pop("ciclo_destino", None)
         origen = get_object_or_404(Piscina, pk=origen_id) if origen_id else None
         destino = get_object_or_404(Piscina, pk=destino_id) if destino_id else None
+        ciclo_origen = get_object_or_404(CicloProductivo, pk=ciclo_origen_id) if ciclo_origen_id else None
+        ciclo_destino = get_object_or_404(CicloProductivo, pk=ciclo_destino_id) if ciclo_destino_id else None
         datos.pop("id", None)
         motivo = datos.pop("motivo_correccion", "")
         try:
@@ -542,6 +859,8 @@ class MovimientoDetalleApiView(APIView):
                 version_esperada=version,
                 piscina_origen=origen,
                 piscina_destino=destino,
+                ciclo_origen=ciclo_origen,
+                ciclo_destino=ciclo_destino,
                 motivo=motivo,
                 **datos,
             )
@@ -569,6 +888,80 @@ class MovimientoAnularApiView(APIView):
         return Response(movimiento_json(movimiento))
 
 
+class LecturasSensorLoteApiView(APIView):
+    authentication_classes = [SensorAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def initial(self, request, *args, **kwargs):
+        if not settings.SENSORES_HABILITADOS:
+            raise NotFound("La telemetría todavía no está habilitada.")
+        return super().initial(request, *args, **kwargs)
+
+    def post(self, request):
+        serializer = LoteLecturasSensorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        dispositivo = request.auth
+        creadas = 0
+        repetidas = 0
+        try:
+            with transaction.atomic():
+                for datos_originales in serializer.validated_data["lecturas"]:
+                    datos = dict(datos_originales)
+                    lectura_id = datos.pop("id")
+                    existente = LecturaSensor.objects.select_for_update().filter(
+                        pk=lectura_id
+                    ).first()
+                    if existente:
+                        campos = (
+                            "medida_en",
+                            "oxigeno_disuelto_mg_l",
+                            "temperatura_c",
+                            "turbidez_ntu",
+                            "calidad",
+                            "detalle_calidad",
+                            "metadatos",
+                        )
+                        if (
+                            existente.dispositivo_id != dispositivo.id
+                            or any(getattr(existente, campo) != datos.get(campo) for campo in campos)
+                        ):
+                            raise ConflictoVersion(
+                                f"La lectura {lectura_id} ya existe con datos diferentes."
+                            )
+                        repetidas += 1
+                        continue
+
+                    medida_en = datos["medida_en"]
+                    ciclo = (
+                        CicloProductivo.objects.filter(
+                            piscina=dispositivo.piscina,
+                            iniciado_en__lte=medida_en,
+                        )
+                        .filter(
+                            Q(estado=CicloProductivo.Estado.ACTIVO)
+                            | Q(
+                                estado=CicloProductivo.Estado.CERRADO,
+                                cerrado_en__gte=medida_en,
+                            )
+                        )
+                        .order_by("-iniciado_en")
+                        .first()
+                    )
+                    lectura = LecturaSensor(
+                        id=lectura_id,
+                        dispositivo=dispositivo,
+                        piscina=dispositivo.piscina,
+                        ciclo=ciclo,
+                        **datos,
+                    )
+                    lectura.full_clean()
+                    lectura.save()
+                    creadas += 1
+        except (ConflictoVersion, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response({"creadas": creadas, "repetidas": repetidas})
+
+
 class SemaforosApiView(APIView):
     def get(self, request):
         perfil = perfil_de(request.user)
@@ -593,3 +986,5 @@ class SemaforosApiView(APIView):
                 }
             )
         return Response(resultado)
+    LecturaSensor,
+    crear_ciclo,

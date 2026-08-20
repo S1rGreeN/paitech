@@ -1,4 +1,4 @@
-# Contrato REST de PaiPayTech v1
+# Contrato REST de PaiPayTech v1.5-dev
 
 Base: `/api/v1/`. Todas las rutas, salvo `health` y `auth/login`, requieren:
 
@@ -46,12 +46,66 @@ un fallo normal y `429` cuando el acceso está bloqueado.
 ## Catálogos y semáforo
 
 - `GET catalogos/especies/`.
-- `GET catalogos/piscinas/`: piscinas de la comunidad y población teórica actual.
+- `GET catalogos/piscinas/`: piscinas de la comunidad, población teórica,
+  ciclo activo y estados informativos de agua/biometría.
 - `GET semaforos/`: última jornada comunitaria con agua por piscina. No descarga el historial comunitario completo.
+
+## Ciclos productivos
+
+- `GET ciclos/`: hasta 200 ciclos de la comunidad.
+- `POST ciclos/`: apertura idempotente por UUID.
+- `GET ciclos/{uuid}/`.
+- `POST ciclos/{uuid}/cerrar/`: cierre optimista; requiere `version`.
+- `GET ciclos/prediccion/?piscina=<uuid>&poblacion_inicial=200`: vista
+  previa calculada en Django para la web.
+
+Solo puede existir un ciclo activo por piscina. La apertura requiere piscina,
+fecha/hora y población inicial; duración estimada y observaciones son opcionales.
+La especie se copia de la piscina y queda como instantánea histórica.
+
+```json
+{
+  "id": "d0bbbda2-6b33-4e15-a567-42b6e51945c3",
+  "piscina": "2f0f06e5-d61b-48f8-a8a7-a22fc25bf421",
+  "iniciado_en": "2026-08-07T15:00:00-05:00",
+  "poblacion_inicial": 200,
+  "duracion_estimada_meses": 10,
+  "observaciones_apertura": "Ciclo ficticio de prueba",
+  "dispositivo_id": "android-a1b2c3"
+}
+```
+
+Android puede añadir `prediccion_cache` cuando abrió offline y tenía historia
+sincronizada. Django valida y conserva exactamente esa instantánea con método,
+fecha y origen; si no había historia, Android omite el bloque y no inventa una
+cifra.
+
+El cierre recibe `destino_cierre` (`VENTA`, `CONSUMO`, `TRASLADO`,
+`MORTALIDAD_TOTAL` u `OTRO`), `poblacion_final` y `cerrado_en`. Observaciones,
+`peso_total_cosechado_kg` y `piscina_destino_cierre` son opcionales. La piscina
+destino solo aplica a traslado, debe ser distinta y de la misma especie. Una
+mortalidad total exige población final cero.
+
+```json
+{
+  "version": 1,
+  "cerrado_en": "2027-06-07T15:00:00-05:00",
+  "destino_cierre": "VENTA",
+  "poblacion_final": 187,
+  "peso_total_cosechado_kg": null,
+  "observaciones_cierre": "Fin completo de la cohorte",
+  "piscina_destino_cierre": null
+}
+```
+
+La predicción `mediana_supervivencia_v1` usa únicamente ciclos cerrados de la
+misma piscina y excluye los que tengan traslados o ajustes. Devuelve estimación,
+rango histórico, cantidad de ciclos y confianza (`MUY_BAJA`, `BAJA` o `MEDIA`).
+Sin historia devuelve `SIN_DATOS` y valores numéricos nulos.
 
 ## Jornadas
 
-- `GET jornadas/`: historial del autor autenticado, máximo 200 elementos.
+- `GET jornadas/`: historial comunitario, máximo 200 elementos.
 - `POST jornadas/`: creación idempotente por UUID.
 - `GET jornadas/{uuid}/`.
 - `PUT jornadas/{uuid}/`: corrección completa; requiere `version`.
@@ -63,6 +117,7 @@ Ejemplo con agua y dos peces:
 {
   "id": "6bc4eb6d-421f-4f51-a70b-9805915f2061",
   "piscina": "2f0f06e5-d61b-48f8-a8a7-a22fc25bf421",
+  "ciclo": "d0bbbda2-6b33-4e15-a567-42b6e51945c3",
   "capturada_en": "2026-08-07T15:00:00-05:00",
   "poblacion_estimada": 200,
   "observaciones": "Sin novedades",
@@ -75,7 +130,15 @@ Ejemplo con agua y dos peces:
 }
 ```
 
-`agua` puede ser `null` y `peces` puede ser una lista vacía, pero no simultáneamente. `poblacion_estimada` siempre es obligatoria. La especie proviene de la piscina.
+`agua` puede ser `null` y `peces` puede ser una lista vacía, pero no
+simultáneamente. `poblacion_estimada` siempre es obligatoria. La jornada debe
+pertenecer al ciclo de la piscina aplicable a su fecha. La especie proviene de
+la piscina.
+
+Los recordatorios no bloquean registros: agua se espera una vez por semana
+calendario y biometría una vez por mes calendario. El primer vencimiento es
+siete días y un mes calendario después de abrir el ciclo, respectivamente. Los
+dos días posteriores son tolerancia; después se informa atraso.
 
 El campo `ph` contiene un único resultado final aunque en campo se usen las
 pruebas de rango normal y alto. Los cuatro campos solo aceptan valores impresos
@@ -95,8 +158,33 @@ con versión obsoleta también devuelve `409` y `codigo: conflicto_version`.
 - `GET/PUT movimientos/{uuid}/`.
 - `POST movimientos/{uuid}/anular/`.
 
-Tipos: `SIEMBRA`, `MORTALIDAD`, `COSECHA_VENTA`, `TRASLADO`, `ESCAPE`, `AJUSTE`. La dirección se expresa con `piscina_origen` y/o `piscina_destino`; no se repite especie.
+Tipos operativos: `MORTALIDAD`, `COSECHA_VENTA`, `TRASLADO`, `ESCAPE` y
+`AJUSTE`. `SIEMBRA` permanece en el catálogo histórico, pero la API rechaza su
+creación: la población inicial se registra al abrir el ciclo. La dirección se
+expresa con `piscina_origen`/`piscina_destino` y cada lado incluye
+`ciclo_origen`/`ciclo_destino`. Los movimientos son excepcionales y auditados;
+una venta o traslado parcial no cierra el ciclo.
+
+## Sensores futuros
+
+El contrato previsto es `POST sensores/lecturas/lote/`, autenticado por
+dispositivo y con lecturas UUID idempotentes. Cada lectura admite uno o más de:
+oxígeno disuelto (`mg/L`), temperatura (`°C`) y turbidez (`NTU`). El dispositivo
+solo escribe para su piscina y puede enviar datos aun si no hay ciclo activo.
+
+En `1.5-dev`, `SENSORES_HABILITADOS=False` es obligatorio: el endpoint responde
+`404`, no se emiten credenciales de hardware y los modelos quedan preparados
+para una integración posterior.
 
 ## Borrado y auditoría
 
-No existe `DELETE`. Anular cambia el estado y crea una entrada de auditoría con actor, motivo, fecha, versión anterior y copia de los datos. La API móvil solo lista el historial propio; la web permite lectura comunitaria.
+No existe `DELETE` operativo. Anular cambia el estado y crea una entrada de
+auditoría con actor, motivo, fecha, versión anterior y copia de los datos. Web y
+Android pueden consultar el historial comunitario; solo el autor puede preparar
+correcciones/anulaciones ordinarias desde Android y la excepción administrativa
+queda auditada en Django.
+
+Un reintento idéntico conserva idempotencia. Datos distintos con el mismo UUID,
+dos aperturas simultáneas o una operación con versión obsoleta devuelven HTTP
+`409`. Android conserva el cambio local, muestra la comparación y exige una
+decisión explícita; nunca sobrescribe silenciosamente el servidor.

@@ -1,26 +1,44 @@
 import uuid
-from datetime import timedelta
+import os
+from io import StringIO
+from unittest.mock import patch
+from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .models import (
     AuditoriaCambio,
+    CicloProductivo,
     Comunidad,
+    DispositivoSensor,
     Especie,
     JornadaRegistro,
+    LecturaSensor,
+    MedicionAgua,
     MovimientoPoblacion,
     Piscina,
 )
 from .management.commands.seed_demo import generar_clave_demo
 from .semaforo import evaluar_agua
-from .services import calcular_poblacion_teorica, crear_jornada, crear_movimiento
+from .prediccion import calcular_prediccion
+from .recordatorios import ATRASADO, TOLERANCIA, estado_agua
+from .services import (
+    calcular_poblacion_teorica,
+    cerrar_ciclo,
+    crear_ciclo,
+    crear_jornada,
+    crear_movimiento,
+)
 
 
 class BasePaiPayTest(TestCase):
@@ -36,6 +54,14 @@ class BasePaiPayTest(TestCase):
             nombre="Piscina 1",
             codigo="P-01",
             tipo=Piscina.Tipo.PECES,
+        )
+        self.ciclo = CicloProductivo.objects.create(
+            piscina=self.piscina,
+            especie=self.especie,
+            numero=1,
+            iniciado_en=timezone.now() - timedelta(days=30),
+            poblacion_inicial=200,
+            autor_apertura=self.user.perfil_acuicultor,
         )
         self.api = APIClient()
 
@@ -87,6 +113,8 @@ class AutenticacionYWebTests(BasePaiPayTest):
 
         self.assertEqual(respuesta.status_code, 200)
         self.assertNotContains(respuesta, "Acceso de demostración")
+        self.assertNotContains(respuesta, "pH 7.20")
+        self.assertContains(respuesta, "Datos reales tras iniciar sesión")
         self.assertContains(respuesta, "No compartas tu contraseña")
 
     def test_login_rechaza_cadena_de_inyeccion_como_correo(self):
@@ -296,7 +324,7 @@ class JornadasApiTests(BasePaiPayTest):
         self.assertEqual(conflicto.status_code, 409)
         self.assertEqual(AuditoriaCambio.objects.filter(entidad_uuid=jornada_id).count(), 2)
 
-    def test_otro_usuario_no_ve_historial_api_ajeno_ni_puede_modificarlo(self):
+    def test_otro_usuario_ve_historial_comunitario_pero_no_puede_modificarlo(self):
         jornada, _ = crear_jornada(
             actor=self.user,
             piscina=self.piscina,
@@ -306,9 +334,16 @@ class JornadasApiTests(BasePaiPayTest):
         )
         self.autenticar(self.otro)
         lista = self.api.get(reverse("monitoreo:api_jornadas"))
-        self.assertEqual(lista.data, [])
+        self.assertEqual(len(lista.data), 1)
         detalle = self.api.get(reverse("monitoreo:api_jornada_detalle", args=[jornada.id]))
-        self.assertEqual(detalle.status_code, 404)
+        self.assertEqual(detalle.status_code, 200)
+        payload = self.payload_jornada(id=str(jornada.id), version=1)
+        correccion = self.api.put(
+            reverse("monitoreo:api_jornada_detalle", args=[jornada.id]),
+            payload,
+            format="json",
+        )
+        self.assertEqual(correccion.status_code, 403)
 
     def test_anular_es_logico_y_auditado(self):
         self.autenticar()
@@ -466,3 +501,227 @@ class MovimientosApiTests(BasePaiPayTest):
         respuesta = self.api.get(reverse("monitoreo:api_health"))
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(respuesta.data["database"], "ok")
+
+
+class CiclosV15Tests(BasePaiPayTest):
+    def test_api_impide_dos_ciclos_activos_en_la_misma_piscina(self):
+        self.autenticar()
+        respuesta = self.api.post(
+            reverse("monitoreo:api_ciclos"),
+            {
+                "id": str(uuid.uuid4()),
+                "piscina": str(self.piscina.id),
+                "iniciado_en": timezone.now().isoformat(),
+                "poblacion_inicial": 220,
+            },
+            format="json",
+        )
+
+        self.assertEqual(respuesta.status_code, 409)
+        self.assertEqual(CicloProductivo.objects.filter(estado="ACTIVO").count(), 1)
+
+    def test_cierre_es_idempotente_y_mortalidad_total_exige_cero(self):
+        self.autenticar()
+        url = reverse("monitoreo:api_ciclo_cerrar", args=[self.ciclo.id])
+        cierre = {
+            "version": 1,
+            "cerrado_en": timezone.now().isoformat(),
+            "destino_cierre": "VENTA",
+            "poblacion_final": 187,
+            "observaciones_cierre": "Fin ficticio de prueba",
+        }
+        primera = self.api.post(url, cierre, format="json")
+        repetida = self.api.post(url, cierre, format="json")
+
+        self.assertEqual(primera.status_code, 200)
+        self.assertEqual(repetida.status_code, 200)
+        self.assertEqual(CicloProductivo.objects.get().version, 2)
+        self.assertEqual(
+            AuditoriaCambio.objects.filter(entidad=AuditoriaCambio.Entidad.CICLO).count(),
+            1,
+        )
+
+    def test_prediccion_usa_mediana_y_excluye_ciclo_con_ajuste(self):
+        ahora = timezone.now()
+        cerrar_ciclo(
+            ciclo=self.ciclo,
+            actor=self.user,
+            version_esperada=1,
+            cerrado_en=ahora - timedelta(days=1),
+            destino_cierre=CicloProductivo.DestinoCierre.VENTA,
+            poblacion_final=180,
+        )
+        ciclo_dos = CicloProductivo.objects.create(
+            piscina=self.piscina,
+            especie=self.especie,
+            numero=2,
+            estado=CicloProductivo.Estado.CERRADO,
+            iniciado_en=ahora - timedelta(days=500),
+            poblacion_inicial=200,
+            autor_apertura=self.user.perfil_acuicultor,
+            cerrado_en=ahora - timedelta(days=200),
+            destino_cierre=CicloProductivo.DestinoCierre.VENTA,
+            poblacion_final=160,
+            autor_cierre=self.user.perfil_acuicultor,
+        )
+        CicloProductivo.objects.create(
+            piscina=self.piscina,
+            especie=self.especie,
+            numero=3,
+            estado=CicloProductivo.Estado.CERRADO,
+            iniciado_en=ahora - timedelta(days=800),
+            poblacion_inicial=200,
+            autor_apertura=self.user.perfil_acuicultor,
+            cerrado_en=ahora - timedelta(days=510),
+            destino_cierre=CicloProductivo.DestinoCierre.VENTA,
+            poblacion_final=190,
+            autor_cierre=self.user.perfil_acuicultor,
+        )
+
+        tres = calcular_prediccion(self.piscina, 100)
+        self.assertEqual(tres["prediccion_poblacion_final"], 90)
+        self.assertEqual((tres["prediccion_min"], tres["prediccion_max"]), (80, 95))
+        self.assertEqual(tres["prediccion_ciclos_usados"], 3)
+
+        MovimientoPoblacion.objects.create(
+            tipo=MovimientoPoblacion.Tipo.AJUSTE,
+            cantidad=1,
+            piscina_origen=self.piscina,
+            ciclo_origen=ciclo_dos,
+            autor=self.user.perfil_acuicultor,
+            ocurrido_en=ciclo_dos.iniciado_en + timedelta(days=1),
+        )
+        dos = calcular_prediccion(self.piscina, 100)
+        self.assertEqual(dos["prediccion_ciclos_usados"], 2)
+        self.assertEqual(dos["prediccion_poblacion_final"], 93)
+        self.assertEqual(dos["prediccion_confianza"], "MUY_BAJA")
+
+    def test_recordatorio_semanal_tiene_tolerancia_lunes_martes_y_atraso_miercoles(self):
+        zona = timezone.get_current_timezone()
+        self.ciclo.iniciado_en = timezone.make_aware(datetime(2026, 8, 3, 10, 0), zona)
+        self.ciclo.save(update_fields=["iniciado_en"])
+        jornada = JornadaRegistro.objects.create(
+            piscina=self.piscina,
+            ciclo=self.ciclo,
+            autor=self.user.perfil_acuicultor,
+            capturada_en=timezone.make_aware(datetime(2026, 8, 4, 10, 0), zona),
+            poblacion_estimada=200,
+            estado=JornadaRegistro.Estado.COMPLETA,
+        )
+        MedicionAgua.objects.create(
+            jornada=jornada,
+            ph=Decimal("7.20"),
+            nitrato=Decimal("10"),
+            nitrito=Decimal("0.25"),
+            amoniaco_total=Decimal("0.25"),
+        )
+
+        lunes = estado_agua(
+            self.ciclo,
+            ahora=timezone.make_aware(datetime(2026, 8, 17, 9, 0), zona),
+        )
+        miercoles = estado_agua(
+            self.ciclo,
+            ahora=timezone.make_aware(datetime(2026, 8, 19, 0, 0), zona),
+        )
+        self.assertEqual(lunes["estado"], TOLERANCIA)
+        self.assertEqual(miercoles["estado"], ATRASADO)
+
+    def test_telemetria_esta_deshabilitada_y_lectura_parcial_es_valida(self):
+        respuesta = self.api.post(
+            reverse("monitoreo:api_sensor_lecturas_lote"), {"lecturas": []}, format="json"
+        )
+        self.assertEqual(respuesta.status_code, 404)
+        dispositivo = DispositivoSensor.objects.create(
+            piscina=self.piscina,
+            codigo="SENSOR-FICTICIO-01",
+            nombre="Sensor ficticio",
+        )
+        lectura = LecturaSensor(
+            dispositivo=dispositivo,
+            piscina=self.piscina,
+            ciclo=self.ciclo,
+            medida_en=timezone.now(),
+            temperatura_c=Decimal("25.100"),
+            calidad=LecturaSensor.Calidad.PARCIAL,
+        )
+        lectura.full_clean()
+
+    @override_settings(SENSORES_HABILITADOS=True)
+    def test_sensor_ficticio_autentica_y_reintenta_lote_sin_duplicar(self):
+        dispositivo = DispositivoSensor.objects.create(
+            piscina=self.piscina,
+            codigo="SENSOR-FICTICIO-IDEMPOTENCIA",
+            nombre="Sensor ficticio de prueba",
+            activo=True,
+        )
+        credencial = dispositivo.emitir_credencial()
+        self.api.credentials(HTTP_AUTHORIZATION=f"Sensor {credencial}")
+        lectura_id = str(uuid.uuid4())
+        lote = {
+            "lecturas": [
+                {
+                    "id": lectura_id,
+                    "medida_en": timezone.now().isoformat(),
+                    "temperatura_c": "25.100",
+                }
+            ]
+        }
+
+        primera = self.api.post(
+            reverse("monitoreo:api_sensor_lecturas_lote"), lote, format="json"
+        )
+        repetida = self.api.post(
+            reverse("monitoreo:api_sensor_lecturas_lote"), lote, format="json"
+        )
+
+        self.assertEqual(primera.status_code, 200)
+        self.assertEqual(primera.data, {"creadas": 1, "repetidas": 0})
+        self.assertEqual(repetida.status_code, 200)
+        self.assertEqual(repetida.data, {"creadas": 0, "repetidas": 1})
+        lectura = LecturaSensor.objects.get(pk=lectura_id)
+        self.assertEqual(lectura.piscina, self.piscina)
+        self.assertEqual(lectura.ciclo, self.ciclo)
+        self.assertEqual(lectura.calidad, LecturaSensor.Calidad.PARCIAL)
+
+    def test_respuesta_400_incluye_identificador_sin_exponer_payload(self):
+        self.autenticar()
+        respuesta = self.api.post(
+            reverse("monitoreo:api_jornadas"),
+            self.payload_jornada(agua=None, peces=[]),
+            format="json",
+        )
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertRegex(respuesta["X-Request-ID"], r"^[a-f0-9]{32}$")
+
+    @override_settings(DEBUG=True)
+    def test_limpieza_desarrollo_conserva_identidad_y_catalogos(self):
+        salida = StringIO()
+        call_command(
+            "limpiar_datos_operativos_desarrollo",
+            "--ejecutar",
+            "--confirmar",
+            "BORRAR-DATOS-DESARROLLO",
+            stdout=salida,
+        )
+
+        self.assertEqual(CicloProductivo.objects.count(), 0)
+        self.assertTrue(get_user_model().objects.filter(pk=self.user.pk).exists())
+        self.assertTrue(Piscina.objects.filter(pk=self.piscina.pk).exists())
+        self.assertIn("Se conservaron usuarios", salida.getvalue())
+
+    @override_settings(DEBUG=False)
+    def test_limpieza_se_rechaza_fuera_de_desarrollo(self):
+        entorno = {
+            clave: valor
+            for clave, valor in os.environ.items()
+            if clave not in {"RAILWAY_ENVIRONMENT_NAME", "PAIPAY_ENVIRONMENT"}
+        }
+        with patch.dict(os.environ, entorno, clear=True):
+            with self.assertRaises(CommandError):
+                call_command(
+                    "limpiar_datos_operativos_desarrollo",
+                    "--ejecutar",
+                    "--confirmar",
+                    "BORRAR-DATOS-DESARROLLO",
+                )
