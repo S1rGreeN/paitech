@@ -141,10 +141,12 @@ siete días y un mes calendario después de abrir el ciclo, respectivamente. Los
 dos días posteriores son tolerancia; después se informa atraso.
 
 El campo `ph` contiene un único resultado final aunque en campo se usen las
-pruebas de rango normal y alto. Los cuatro campos solo aceptan valores impresos
-en el API Freshwater Master Test Kit. `nitrato`, `nitrito` y
-`amoniaco_total` se expresan en ppm; este último representa la lectura conjunta
-rotulada por el kit como NH₃/NH₄⁺, no únicamente el ion amonio.
+pruebas de rango normal y alto. Los cuatro campos aceptan escritura numérica
+manual: pH usa hasta dos decimales y debe estar entre 0 y 14; `nitrato`,
+`nitrito` y `amoniaco_total` usan hasta tres decimales y no pueden ser
+negativos. Los tres últimos se expresan en ppm; `amoniaco_total` representa la
+lectura conjunta rotulada por el kit como NH₃/NH₄⁺, no únicamente el ion
+amonio.
 
 Un `POST` repetido con el mismo UUID **y el mismo contenido** devuelve el registro
 existente sin duplicarlo. Si ese UUID ya existe con datos distintos o fue

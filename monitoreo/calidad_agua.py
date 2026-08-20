@@ -1,3 +1,10 @@
+"""Compatibilidad con la migración histórica 0002.
+
+La captura actual acepta valores numéricos continuos. Estas funciones deben
+permanecer importables porque Django las referencia al reconstruir migraciones
+antiguas desde cero; ningún modelo, formulario ni serializer vigente las usa.
+"""
+
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError

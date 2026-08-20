@@ -23,12 +23,6 @@ from cuentas.security import (
     registrar_login_fallido,
 )
 
-from .calidad_agua import (
-    validar_amoniaco_total_kit,
-    validar_nitrato_kit,
-    validar_nitrito_kit,
-    validar_ph_kit,
-)
 from .models import (
     CicloProductivo,
     DispositivoSensor,
@@ -64,26 +58,6 @@ class AguaSerializer(serializers.Serializer):
     nitrato = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=0)
     nitrito = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=0)
     amoniaco_total = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=0)
-
-    @staticmethod
-    def _validar(valor, validador):
-        try:
-            validador(valor)
-        except DjangoValidationError as error:
-            raise serializers.ValidationError(error.messages) from error
-        return valor
-
-    def validate_ph(self, valor):
-        return self._validar(valor, validar_ph_kit)
-
-    def validate_nitrato(self, valor):
-        return self._validar(valor, validar_nitrato_kit)
-
-    def validate_nitrito(self, valor):
-        return self._validar(valor, validar_nitrito_kit)
-
-    def validate_amoniaco_total(self, valor):
-        return self._validar(valor, validar_amoniaco_total_kit)
 
 
 class PezSerializer(serializers.Serializer):

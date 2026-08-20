@@ -1,18 +1,9 @@
-from decimal import Decimal
-
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm, PasswordChangeForm
 from django.core.exceptions import ObjectDoesNotExist
 from django.forms import BaseFormSet, formset_factory
 from django.utils import timezone
 
-from .calidad_agua import (
-    AMONIACO_TOTAL_VALORES,
-    NITRATO_VALORES,
-    NITRITO_VALORES,
-    PH_VALORES,
-    opciones_formulario,
-)
 from .models import CicloProductivo, JornadaRegistro, Piscina
 
 INPUT_CLASS = (
@@ -93,37 +84,46 @@ class JornadaForm(forms.ModelForm):
         label="Incluir muestra biométrica",
         widget=forms.CheckboxInput(attrs={"class": CHECKBOX_CLASS}),
     )
-    ph = forms.TypedChoiceField(
+    ph = forms.DecimalField(
         required=False,
-        coerce=Decimal,
-        empty_value=None,
-        choices=(("", "Selecciona el pH final"),) + opciones_formulario(PH_VALORES),
+        min_value=0,
+        max_value=14,
+        max_digits=4,
+        decimal_places=2,
         label="pH final (escala normal o alta)",
-        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+        widget=forms.NumberInput(
+            attrs={"class": INPUT_CLASS, "min": "0", "max": "14", "step": "0.01", "inputmode": "decimal"}
+        ),
     )
-    nitrato = forms.TypedChoiceField(
+    nitrato = forms.DecimalField(
         required=False,
-        coerce=Decimal,
-        empty_value=None,
-        choices=(("", "Selecciona una lectura"),) + opciones_formulario(NITRATO_VALORES),
+        min_value=0,
+        max_digits=10,
+        decimal_places=3,
         label="Nitrato (NO₃⁻), ppm",
-        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+        widget=forms.NumberInput(
+            attrs={"class": INPUT_CLASS, "min": "0", "step": "0.001", "inputmode": "decimal"}
+        ),
     )
-    nitrito = forms.TypedChoiceField(
+    nitrito = forms.DecimalField(
         required=False,
-        coerce=Decimal,
-        empty_value=None,
-        choices=(("", "Selecciona una lectura"),) + opciones_formulario(NITRITO_VALORES),
+        min_value=0,
+        max_digits=10,
+        decimal_places=3,
         label="Nitrito (NO₂⁻), ppm",
-        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+        widget=forms.NumberInput(
+            attrs={"class": INPUT_CLASS, "min": "0", "step": "0.001", "inputmode": "decimal"}
+        ),
     )
-    amoniaco_total = forms.TypedChoiceField(
+    amoniaco_total = forms.DecimalField(
         required=False,
-        coerce=Decimal,
-        empty_value=None,
-        choices=(("", "Selecciona una lectura"),) + opciones_formulario(AMONIACO_TOTAL_VALORES),
+        min_value=0,
+        max_digits=10,
+        decimal_places=3,
         label="Amoníaco total (NH₃/NH₄⁺), ppm",
-        widget=forms.Select(attrs={"class": INPUT_CLASS}),
+        widget=forms.NumberInput(
+            attrs={"class": INPUT_CLASS, "min": "0", "step": "0.001", "inputmode": "decimal"}
+        ),
     )
 
     class Meta:

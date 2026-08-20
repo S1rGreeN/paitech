@@ -200,10 +200,10 @@ class AutenticacionYWebTests(BasePaiPayTest):
                 "poblacion_estimada": "200",
                 "observaciones": "Solo agua",
                 "registrar_agua": "on",
-                "ph": "7.2",
-                "nitrato": "10",
-                "nitrito": "0.25",
-                "amoniaco_total": "0.25",
+                "ph": "7.31",
+                "nitrato": "12.375",
+                "nitrito": "0.375",
+                "amoniaco_total": "0.125",
                 "muestras-TOTAL_FORMS": "0",
                 "muestras-INITIAL_FORMS": "0",
                 "muestras-MIN_NUM_FORMS": "0",
@@ -213,9 +213,26 @@ class AutenticacionYWebTests(BasePaiPayTest):
         self.assertEqual(respuesta.status_code, 302)
         jornada = JornadaRegistro.objects.get()
         self.assertEqual(jornada.estado, JornadaRegistro.Estado.COMPLETA)
-        self.assertEqual(jornada.agua.ph, Decimal("7.20"))
-        self.assertEqual(jornada.agua.amoniaco_total, Decimal("0.250"))
+        self.assertEqual(jornada.agua.ph, Decimal("7.31"))
+        self.assertEqual(jornada.agua.nitrato, Decimal("12.375"))
+        self.assertEqual(jornada.agua.nitrito, Decimal("0.375"))
+        self.assertEqual(jornada.agua.amoniaco_total, Decimal("0.125"))
         self.assertFalse(hasattr(jornada, "muestra_biometrica"))
+
+    def test_web_muestra_agua_como_campos_numericos_editables(self):
+        self.client.force_login(self.user)
+
+        respuesta = self.client.get(
+            reverse("monitoreo:registro_nuevo", args=[self.piscina.id])
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'name="ph"')
+        self.assertContains(respuesta, 'type="number"')
+        self.assertContains(respuesta, 'name="ph"', count=1)
+        self.assertContains(respuesta, 'step="0.01"')
+        self.assertContains(respuesta, 'step="0.001"', count=3)
+        self.assertNotContains(respuesta, "Selecciona una lectura")
 
 
 class JornadasApiTests(BasePaiPayTest):
@@ -238,17 +255,32 @@ class JornadasApiTests(BasePaiPayTest):
         vacia = self.api.post(reverse("monitoreo:api_jornadas"), self.payload_jornada(agua=None, peces=[]), format="json")
         self.assertEqual(vacia.status_code, 400)
 
-    def test_agua_acepta_solo_lecturas_impresas_y_expone_amoniaco_total(self):
+    def test_agua_acepta_decimales_manuales_y_conserva_limites(self):
         self.autenticar()
-        invalida = self.payload_jornada()
-        invalida["agua"]["ph"] = "7.30"
+        manual = self.payload_jornada()
+        manual["agua"] = {
+            "ph": "7.31",
+            "nitrato": "12.375",
+            "nitrito": "0.375",
+            "amoniaco_total": "0.125",
+        }
 
-        rechazada = self.api.post(
-            reverse("monitoreo:api_jornadas"), invalida, format="json"
+        aceptada = self.api.post(
+            reverse("monitoreo:api_jornadas"), manual, format="json"
         )
 
+        self.assertEqual(aceptada.status_code, 201)
+        self.assertEqual(aceptada.data["agua"]["ph"], "7.31")
+        self.assertEqual(aceptada.data["agua"]["nitrato"], "12.375")
+
+        fuera_de_rango = self.payload_jornada()
+        fuera_de_rango["agua"]["ph"] = "14.01"
+        rechazada = self.api.post(
+            reverse("monitoreo:api_jornadas"), fuera_de_rango, format="json"
+        )
         self.assertEqual(rechazada.status_code, 400)
         self.assertIn("ph", rechazada.data["agua"])
+
         contrato_antiguo = self.payload_jornada()
         contrato_antiguo["agua"]["amonio"] = contrato_antiguo["agua"].pop(
             "amoniaco_total"
@@ -258,12 +290,8 @@ class JornadasApiTests(BasePaiPayTest):
         )
         self.assertEqual(clave_antigua.status_code, 400)
         self.assertIn("amoniaco_total", clave_antigua.data["agua"])
-        valida = self.api.post(
-            reverse("monitoreo:api_jornadas"), self.payload_jornada(), format="json"
-        )
-        self.assertEqual(valida.status_code, 201)
-        self.assertIn("amoniaco_total", valida.data["agua"])
-        self.assertNotIn("amonio", valida.data["agua"])
+        self.assertIn("amoniaco_total", aceptada.data["agua"])
+        self.assertNotIn("amonio", aceptada.data["agua"])
 
     def test_observacion_sql_maliciosa_se_guarda_como_texto(self):
         self.autenticar()
