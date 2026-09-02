@@ -6,11 +6,13 @@ from django.db import transaction
 
 from monitoreo.models import (
     AuditoriaCambio,
+    CicloLombricultura,
     CicloProductivo,
     DispositivoSensor,
     JornadaRegistro,
     LecturaSensor,
     MovimientoPoblacion,
+    RegistroLombricultura,
 )
 
 
@@ -41,7 +43,9 @@ class Command(BaseCommand):
             ("lecturas de sensores", LecturaSensor),
             ("movimientos", MovimientoPoblacion),
             ("jornadas", JornadaRegistro),
+            ("registros de lombricultura", RegistroLombricultura),
             ("ciclos", CicloProductivo),
+            ("ciclos de lombricultura", CicloLombricultura),
             ("dispositivos sensores de prueba", DispositivoSensor),
         )
         self.stdout.write("Conteos operativos actuales:")

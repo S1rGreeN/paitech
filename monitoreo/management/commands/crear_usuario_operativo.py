@@ -35,6 +35,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--rol", required=True, choices=ROLES)
+        parser.add_argument(
+            "--comunidad",
+            help="Código de la comunidad (por ejemplo paipayales o colegio-galo-plaza-lasso).",
+        )
 
     def handle(self, *args, **options):
         configuracion = ROLES[options["rol"]]
@@ -73,10 +77,16 @@ class Command(BaseCommand):
         except ValidationError as error:
             raise CommandError("La contraseña no cumple la política: " + " ".join(error.messages)) from error
 
-        comunidad, _ = Comunidad.objects.get_or_create(
-            codigo="paipayales",
-            defaults={"nombre": "Paipayales"},
-        )
+        codigo_comunidad = (options.get("comunidad") or input("Código de comunidad: ")).strip().lower()
+        try:
+            comunidad = Comunidad.objects.get(codigo=codigo_comunidad, activa=True)
+        except Comunidad.DoesNotExist as error:
+            disponibles = ", ".join(
+                Comunidad.objects.filter(activa=True).values_list("codigo", flat=True)
+            )
+            raise CommandError(
+                f"La comunidad no existe o está inactiva. Disponibles: {disponibles or 'ninguna'}."
+            ) from error
         with transaction.atomic():
             usuario.set_password(clave)
             usuario.save()
@@ -91,6 +101,10 @@ class Command(BaseCommand):
                 grupo = configurar_grupo_administradores_funcionales()
                 usuario.groups.add(grupo)
 
-        self.stdout.write(self.style.SUCCESS(f"Usuario {email} creado como {options['rol']}."))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Usuario {email} creado como {options['rol']} en {comunidad.nombre}."
+            )
+        )
         self.stdout.write("La cuenta deberá cambiar la contraseña temporal en su primer acceso.")
         self.stdout.write("La contraseña no se imprimió ni se guardó en archivos del proyecto.")

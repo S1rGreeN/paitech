@@ -19,16 +19,36 @@ from cuentas.security import (
 
 from .forms import (
     CambioClaveInicialForm,
+    CicloLombriculturaAperturaForm,
+    CicloLombriculturaCierreForm,
     CicloAperturaForm,
     CicloCierreForm,
     JornadaForm,
     LoginForm,
     ObservacionPezFormSet,
+    RegistroLombriculturaForm,
 )
-from .models import CicloProductivo, JornadaRegistro, MedicionAgua, Piscina
+from .models import (
+    CamaLombrices,
+    CicloLombricultura,
+    CicloProductivo,
+    JornadaRegistro,
+    MedicionAgua,
+    Piscina,
+    RegistroLombricultura,
+)
 from .prediccion import calcular_prediccion
 from .recordatorios import recordatorios_piscina
-from .services import ConflictoVersion, cerrar_ciclo, crear_ciclo, crear_jornada, perfil_de
+from .services import (
+    ConflictoVersion,
+    cerrar_ciclo,
+    cerrar_ciclo_lombricultura,
+    crear_ciclo,
+    crear_ciclo_lombricultura,
+    crear_jornada,
+    crear_registro_lombricultura,
+    perfil_de,
+)
 
 
 def render_page(
@@ -128,9 +148,33 @@ def dashboard(request):
             "recordatorios": recordatorios_piscina(piscina),
         })
     registros = JornadaRegistro.objects.filter(piscina__comunidad=perfil.comunidad, estado=JornadaRegistro.Estado.COMPLETA).select_related("piscina", "autor", "autor__user", "agua")
+    camas = list(
+        CamaLombrices.objects.filter(comunidad=perfil.comunidad, activa=True)
+        .annotate(
+            total_registros=Count(
+                "registros",
+                filter=Q(registros__estado=RegistroLombricultura.Estado.COMPLETO),
+            )
+        )
+        .order_by("nombre")
+    )
+    tarjetas_camas = [
+        {
+            "cama": cama,
+            "ciclo_activo": cama.ciclos.filter(
+                estado=CicloLombricultura.Estado.ACTIVO
+            ).first(),
+            "ultimo_registro": cama.registros.filter(
+                estado=RegistroLombricultura.Estado.COMPLETO
+            ).first(),
+        }
+        for cama in camas
+    ]
     contexto = {
         "tarjetas": tarjetas,
+        "tarjetas_camas": tarjetas_camas,
         "total_piscinas": len(piscinas),
+        "total_camas": len(camas),
         "total_registros": registros.count(),
         "promedio_ph": MedicionAgua.objects.filter(jornada__in=registros).aggregate(valor=Avg("ph"))["valor"],
         "ultimos_registros": registros[:5],
@@ -270,3 +314,142 @@ def registro_detalle(request, registro_id):
     )
     resumen = registro.muestras_peces.aggregate(peso_promedio=Avg("peso_gramos"), talla_promedio=Avg("talla_centimetros"))
     return render_page(request, "monitoreo/registro_detalle.jinja", {"registro": registro, "resumen_muestras": resumen})
+
+
+@login_required
+@require_http_methods(["GET"])
+def cama_detalle(request, cama_id):
+    perfil = perfil_de(request.user)
+    cama = get_object_or_404(
+        CamaLombrices, pk=cama_id, comunidad=perfil.comunidad, activa=True
+    )
+    registros = (
+        cama.registros.filter(estado=RegistroLombricultura.Estado.COMPLETO)
+        .select_related("autor", "autor__user", "ciclo")[:30]
+    )
+    ciclo_activo = cama.ciclos.filter(
+        estado=CicloLombricultura.Estado.ACTIVO
+    ).select_related("autor_apertura", "autor_apertura__user").first()
+    ciclos = cama.ciclos.select_related("autor_apertura", "autor_cierre")[:20]
+    promedio_ph = registros.aggregate(valor=Avg("ph_suelo"))["valor"]
+    return render_page(
+        request,
+        "monitoreo/cama_detalle.jinja",
+        {
+            "cama": cama,
+            "registros": registros,
+            "ciclo_activo": ciclo_activo,
+            "ciclos": ciclos,
+            "promedio_ph": promedio_ph,
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def ciclo_lombricultura_abrir(request, cama_id):
+    perfil = perfil_de(request.user)
+    cama = get_object_or_404(
+        CamaLombrices, pk=cama_id, comunidad=perfil.comunidad, activa=True
+    )
+    activo = cama.ciclos.filter(estado=CicloLombricultura.Estado.ACTIVO).first()
+    if activo:
+        messages.info(request, f"La cama ya tiene activo el ciclo {activo.numero}.")
+        return redirect("monitoreo:cama_detalle", cama_id=cama.id)
+    form = CicloLombriculturaAperturaForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            ciclo, _ = crear_ciclo_lombricultura(
+                actor=request.user,
+                cama=cama,
+                fuente=CicloLombricultura.Fuente.WEB,
+                **form.cleaned_data,
+            )
+        except ConflictoVersion as error:
+            form.add_error(None, str(error))
+        else:
+            messages.success(request, f"Ciclo {ciclo.numero} iniciado correctamente.")
+            return redirect("monitoreo:cama_detalle", cama_id=cama.id)
+    return render_page(
+        request,
+        "monitoreo/ciclo_lombricultura_abrir.jinja",
+        {"cama": cama, "form": form},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def ciclo_lombricultura_cerrar(request, ciclo_id):
+    perfil = perfil_de(request.user)
+    ciclo = get_object_or_404(
+        CicloLombricultura.objects.select_related("cama"),
+        pk=ciclo_id,
+        cama__comunidad=perfil.comunidad,
+        estado=CicloLombricultura.Estado.ACTIVO,
+    )
+    form = CicloLombriculturaCierreForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            ciclo, _ = cerrar_ciclo_lombricultura(
+                ciclo=ciclo,
+                actor=request.user,
+                version_esperada=ciclo.version,
+                **form.cleaned_data,
+            )
+        except ConflictoVersion as error:
+            form.add_error(None, str(error))
+        else:
+            messages.success(request, f"Ciclo {ciclo.numero} cerrado correctamente.")
+            return redirect("monitoreo:cama_detalle", cama_id=ciclo.cama_id)
+    return render_page(
+        request,
+        "monitoreo/ciclo_lombricultura_cerrar.jinja",
+        {"cama": ciclo.cama, "ciclo": ciclo, "form": form},
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def registro_lombricultura_nuevo(request, cama_id):
+    perfil = perfil_de(request.user)
+    cama = get_object_or_404(
+        CamaLombrices, pk=cama_id, comunidad=perfil.comunidad, activa=True
+    )
+    ciclo = cama.ciclos.filter(estado=CicloLombricultura.Estado.ACTIVO).first()
+    if ciclo is None:
+        messages.info(request, "Primero debes iniciar un ciclo de lombricultura.")
+        return redirect("monitoreo:ciclo_lombricultura_abrir", cama_id=cama.id)
+    form = RegistroLombriculturaForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        registro, _ = crear_registro_lombricultura(
+            actor=request.user,
+            cama=cama,
+            ciclo=ciclo,
+            fuente=RegistroLombricultura.Fuente.WEB,
+            **form.cleaned_data,
+        )
+        messages.success(request, "Registro de lombricultura guardado correctamente.")
+        return redirect(
+            "monitoreo:registro_lombricultura_detalle", registro_id=registro.id
+        )
+    return render_page(
+        request,
+        "monitoreo/registro_lombricultura_form.jinja",
+        {"cama": cama, "ciclo": ciclo, "form": form},
+    )
+
+
+@login_required
+@require_http_methods(["GET"])
+def registro_lombricultura_detalle(request, registro_id):
+    perfil = perfil_de(request.user)
+    registro = get_object_or_404(
+        RegistroLombricultura.objects.filter(cama__comunidad=perfil.comunidad)
+        .select_related("cama", "ciclo", "autor", "autor__user"),
+        pk=registro_id,
+    )
+    return render_page(
+        request,
+        "monitoreo/registro_lombricultura_detalle.jinja",
+        {"registro": registro},
+    )

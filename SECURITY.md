@@ -1,4 +1,4 @@
-# Seguridad de PaiPayTech v1.5-dev
+# Seguridad de PaiPayTech v1.6-dev
 
 Este documento registra controles verificables y reglas que no deben romperse.
 No sustituye una auditoría de seguridad externa antes de manejar datos reales.
@@ -46,6 +46,8 @@ https://docs.djangoproject.com/en/5.2/topics/security/#sql-injection-protection
 - Motivos de corrección/anulación: máximo 1000 caracteres.
 - Biometría API: máximo 2000 peces por jornada. Este límite es defensivo y
   deberá revisarse si el protocolo de muestreo real exige más.
+- Lombricultura: pH del suelo de 0 a 14 con dos decimales y conteos enteros no
+  negativos; cama y ciclo deben pertenecer a la misma comunidad.
 - Cuerpo HTTP: máximo 2 MiB en Django v1.4.
 - Login: correo válido; la política de alta/cambio acepta entre 8 y 32
   caracteres y aplica los validadores de similitud, claves comunes y claves
@@ -78,7 +80,7 @@ https://docs.djangoproject.com/en/5.2/topics/security/#sql-injection-protection
 
 ## Seguridad local de Android
 
-- Token, correo y marca temporal de validación se guardan en
+- Token, correo, UUID público de comunidad y marca temporal de validación se guardan en
   `EncryptedSharedPreferences`, protegidas por Android Keystore. La base Room
   permanece dentro del sandbox privado y las copias de seguridad están
   deshabilitadas.
@@ -87,6 +89,23 @@ https://docs.djangoproject.com/en/5.2/topics/security/#sql-injection-protection
 - El trabajo offline se permite como máximo 30 días desde la última respuesta
   autenticada. Una expiración conserva los pendientes; un cierre voluntario solo
   se permite sin pendientes/conflictos y elimina sesión, Room y caché local.
+- Un cambio de cuenta o comunidad se rechaza mientras exista cualquier jornada,
+  movimiento, ciclo o registro de lombricultura pendiente/conflictivo. Cuando no
+  hay trabajo sin resolver, Room se limpia y se descarga el catálogo del tenant
+  nuevo.
+
+## Aislamiento entre comunidades
+
+- Cada perfil pertenece exactamente a una `Comunidad`; la PK numérica permanece
+  interna y los clientes reciben un UUID público no secuencial.
+- Web, API y Django Admin funcional parten de la comunidad autenticada y filtran
+  también claves foráneas. Conocer el UUID de una piscina, cama, ciclo o registro
+  ajeno no concede acceso y produce `404`.
+- Especies y perfiles de semáforo son globales, pero un usuario ordinario solo
+  ve especies utilizadas por las piscinas de su comunidad. Solo el superusuario
+  técnico puede modificarlos o consultar datos transversalmente en Django Admin.
+- La comunidad nunca se acepta como un campo libre del payload operativo; Django
+  la deriva del usuario y de la piscina/cama seleccionada.
 
 ## Producción Railway / Neon
 
@@ -121,7 +140,7 @@ Railway permite sellar variables sensibles. Neon exige conexiones TLS. La guía
 paso a paso se realizará junto con el propietario cuando llegue el hito de
 despliegue; no se copiarán secretos en archivos versionados.
 
-## Controles todavía pendientes antes de v1.5 final
+## Controles todavía pendientes antes de v1.6 final
 
 - ejecutar pruebas dinámicas contra el despliegue de desarrollo;
 - revisar dependencias y alertas de vulnerabilidades;

@@ -1,0 +1,15 @@
+{% extends "monitoreo/base.jinja" %}
+{% block title %}Nuevo registro · {{ cama.nombre }}{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-2xl px-4 py-10 sm:px-6">
+    <a href="{{ url('monitoreo:cama_detalle', cama_id=cama.id) }}" class="text-sm font-bold text-stone-500">← Volver</a>
+    <form method="post" class="mt-5 rounded-[2rem] border border-stone-200 bg-white p-7 brand-shadow sm:p-9">
+        <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+        <h1 class="text-3xl font-black text-brand-brown">Nuevo registro de lombricultura</h1>
+        <p class="mt-2 text-stone-500">{{ cama.nombre }} · ciclo {{ ciclo.numero }}. Ingresa el pH manualmente o usa las flechas del campo numérico.</p>
+        {% if form.non_field_errors() %}<div class="mt-5 rounded-2xl bg-red-50 p-4 text-red-700">{{ form.non_field_errors() }}</div>{% endif %}
+        {% for field in form %}<div class="mt-5"><label class="font-bold text-brand-brown">{{ field.label }}</label>{{ field }}{% if field.errors %}<p class="mt-1 text-sm text-red-700">{{ field.errors|join(', ') }}</p>{% endif %}</div>{% endfor %}
+        <button class="mt-7 rounded-2xl bg-brand-brown px-6 py-3 font-bold text-white" type="submit">Guardar registro</button>
+    </form>
+</section>
+{% endblock %}

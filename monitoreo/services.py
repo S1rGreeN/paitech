@@ -8,6 +8,8 @@ from django.utils import timezone
 from .models import (
     Acuicultor,
     AuditoriaCambio,
+    CamaLombrices,
+    CicloLombricultura,
     CicloProductivo,
     JornadaRegistro,
     MedicionAgua,
@@ -15,6 +17,7 @@ from .models import (
     MuestraBiometrica,
     ObservacionPez,
     Piscina,
+    RegistroLombricultura,
 )
 from .prediccion import calcular_prediccion, validar_prediccion_cache
 
@@ -129,10 +132,53 @@ def snapshot_ciclo(ciclo):
     )
 
 
+def snapshot_ciclo_lombricultura(ciclo):
+    return _json_seguro(
+        {
+            "id": ciclo.id,
+            "cama": ciclo.cama_id,
+            "numero": ciclo.numero,
+            "estado": ciclo.estado,
+            "iniciado_en": ciclo.iniciado_en,
+            "conteo_inicial": ciclo.conteo_inicial,
+            "observaciones_apertura": ciclo.observaciones_apertura,
+            "autor_apertura": ciclo.autor_apertura_id,
+            "fuente": ciclo.fuente,
+            "dispositivo_id": ciclo.dispositivo_id,
+            "cerrado_en": ciclo.cerrado_en,
+            "conteo_final": ciclo.conteo_final,
+            "observaciones_cierre": ciclo.observaciones_cierre,
+            "autor_cierre": ciclo.autor_cierre_id,
+            "version": ciclo.version,
+        }
+    )
+
+
+def snapshot_registro_lombricultura(registro):
+    return _json_seguro(
+        {
+            "id": registro.id,
+            "cama": registro.cama_id,
+            "ciclo": registro.ciclo_id,
+            "autor": registro.autor_id,
+            "capturada_en": registro.capturada_en,
+            "ph_suelo": registro.ph_suelo,
+            "conteo_lombrices": registro.conteo_lombrices,
+            "observaciones": registro.observaciones,
+            "fuente": registro.fuente,
+            "dispositivo_id": registro.dispositivo_id,
+            "estado": registro.estado,
+            "version": registro.version,
+        }
+    )
+
+
 def _registrar_auditoria(*, entidad, entidad_uuid, accion, actor, version_anterior, version_nueva, antes, despues, motivo=""):
+    perfil = perfil_de(actor)
     AuditoriaCambio.objects.create(
         entidad=entidad,
         entidad_uuid=entidad_uuid,
+        comunidad=perfil.comunidad,
         accion=accion,
         actor=actor,
         version_anterior=version_anterior,
@@ -214,8 +260,39 @@ def _validar_piscina(perfil, piscina):
         raise PermissionDenied("La piscina no pertenece a la comunidad del usuario.")
     if not piscina.activa:
         raise ValidationError("La piscina está inactiva.")
-    if piscina.tipo != Piscina.Tipo.PECES:
-        raise ValidationError("Lombricultura permanece como Próximamente en esta versión.")
+
+
+def _validar_cama(perfil, cama):
+    if cama.comunidad_id != perfil.comunidad_id:
+        raise PermissionDenied("La cama no pertenece a la comunidad del usuario.")
+    if not cama.activa:
+        raise ValidationError("La cama está inactiva.")
+
+
+def _ciclo_lombricultura_para_fecha(cama, fecha, ciclo=None):
+    if ciclo is None:
+        ciclo = (
+            CicloLombricultura.objects.filter(
+                cama=cama,
+                estado=CicloLombricultura.Estado.ACTIVO,
+                iniciado_en__lte=fecha,
+            )
+            .order_by("-iniciado_en")
+            .first()
+        )
+    if ciclo is None:
+        raise ValidationError(
+            {"ciclo": "La cama necesita un ciclo activo para registrar esta operación."}
+        )
+    if ciclo.cama_id != cama.id:
+        raise ValidationError({"ciclo": "El ciclo no pertenece a la cama indicada."})
+    if ciclo.estado == CicloLombricultura.Estado.ANULADO:
+        raise ValidationError({"ciclo": "No se puede registrar en un ciclo anulado."})
+    if fecha < ciclo.iniciado_en:
+        raise ValidationError({"ciclo": "La fecha es anterior a la apertura del ciclo."})
+    if ciclo.cerrado_en and fecha > ciclo.cerrado_en:
+        raise ValidationError({"ciclo": "La fecha es posterior al cierre del ciclo."})
+    return ciclo
 
 
 def _ciclo_para_fecha(piscina, fecha, ciclo=None):
@@ -721,3 +798,320 @@ def anular_movimiento(*, movimiento, actor, version_esperada, motivo):
         motivo=motivo,
     )
     return movimiento
+
+
+@transaction.atomic
+def crear_ciclo_lombricultura(
+    *,
+    actor,
+    cama,
+    iniciado_en,
+    conteo_inicial,
+    observaciones_apertura="",
+    fuente=CicloLombricultura.Fuente.ANDROID,
+    dispositivo_id="",
+    ciclo_id=None,
+):
+    perfil = perfil_de(actor)
+    _validar_cama(perfil, cama)
+    CamaLombrices.objects.select_for_update().get(pk=cama.pk)
+
+    if ciclo_id:
+        existente = CicloLombricultura.objects.select_for_update().filter(pk=ciclo_id).first()
+        if existente:
+            if existente.cama.comunidad_id != perfil.comunidad_id:
+                raise PermissionDenied("El ciclo no pertenece a la comunidad del usuario.")
+            if existente.autor_apertura.user_id != actor.id and not actor.is_superuser:
+                raise PermissionDenied("El UUID ya pertenece a otro autor.")
+            equivalente = (
+                existente.version == 1
+                and existente.estado == CicloLombricultura.Estado.ACTIVO
+                and existente.cama_id == cama.id
+                and existente.iniciado_en == iniciado_en
+                and existente.conteo_inicial == conteo_inicial
+                and existente.observaciones_apertura == observaciones_apertura
+                and existente.fuente == fuente
+                and existente.dispositivo_id == dispositivo_id
+            )
+            if equivalente:
+                return existente, False
+            raise ConflictoVersion(
+                "El UUID del ciclo de lombricultura ya existe con datos diferentes."
+            )
+
+    if CicloLombricultura.objects.filter(
+        cama=cama, estado=CicloLombricultura.Estado.ACTIVO
+    ).exists():
+        raise ConflictoVersion("La cama ya tiene un ciclo activo.")
+
+    numero = (
+        CicloLombricultura.objects.filter(cama=cama).aggregate(valor=models.Max("numero"))[
+            "valor"
+        ]
+        or 0
+    ) + 1
+    ciclo = CicloLombricultura(
+        id=ciclo_id,
+        cama=cama,
+        numero=numero,
+        iniciado_en=iniciado_en,
+        conteo_inicial=conteo_inicial,
+        observaciones_apertura=observaciones_apertura,
+        autor_apertura=perfil,
+        fuente=fuente,
+        dispositivo_id=dispositivo_id,
+    )
+    ciclo.full_clean()
+    try:
+        ciclo.save()
+    except IntegrityError as error:
+        raise ConflictoVersion("La cama ya tiene un ciclo activo.") from error
+    _registrar_auditoria(
+        entidad=AuditoriaCambio.Entidad.CICLO_LOMBRIZ,
+        entidad_uuid=ciclo.id,
+        accion=AuditoriaCambio.Accion.CREAR,
+        actor=actor,
+        version_anterior=None,
+        version_nueva=1,
+        antes=None,
+        despues=snapshot_ciclo_lombricultura(ciclo),
+    )
+    return ciclo, True
+
+
+@transaction.atomic
+def cerrar_ciclo_lombricultura(
+    *,
+    ciclo,
+    actor,
+    version_esperada,
+    cerrado_en,
+    conteo_final,
+    observaciones_cierre="",
+):
+    perfil = perfil_de(actor)
+    ciclo = (
+        CicloLombricultura.objects.select_for_update()
+        .select_related("cama")
+        .get(pk=ciclo.pk)
+    )
+    _validar_cama(perfil, ciclo.cama)
+    equivalente = (
+        ciclo.estado == CicloLombricultura.Estado.CERRADO
+        and ciclo.version == version_esperada + 1
+        and ciclo.cerrado_en == cerrado_en
+        and ciclo.conteo_final == conteo_final
+        and ciclo.observaciones_cierre == observaciones_cierre
+    )
+    if equivalente:
+        return ciclo, False
+    if ciclo.version != version_esperada:
+        raise ConflictoVersion(
+            f"El ciclo está en la versión {ciclo.version}; se recibió la {version_esperada}."
+        )
+    if ciclo.estado != CicloLombricultura.Estado.ACTIVO:
+        raise ConflictoVersion("El ciclo ya no está activo.")
+
+    antes = snapshot_ciclo_lombricultura(ciclo)
+    ciclo.estado = CicloLombricultura.Estado.CERRADO
+    ciclo.cerrado_en = cerrado_en
+    ciclo.conteo_final = conteo_final
+    ciclo.observaciones_cierre = observaciones_cierre
+    ciclo.autor_cierre = perfil
+    ciclo.version += 1
+    ciclo.full_clean()
+    ciclo.save()
+    _registrar_auditoria(
+        entidad=AuditoriaCambio.Entidad.CICLO_LOMBRIZ,
+        entidad_uuid=ciclo.id,
+        accion=AuditoriaCambio.Accion.CORREGIR,
+        actor=actor,
+        version_anterior=version_esperada,
+        version_nueva=ciclo.version,
+        antes=antes,
+        despues=snapshot_ciclo_lombricultura(ciclo),
+        motivo="Cierre del ciclo de lombricultura",
+    )
+    return ciclo, True
+
+
+def _registro_lombriz_equivale(
+    existente,
+    *,
+    cama,
+    ciclo,
+    capturada_en,
+    ph_suelo,
+    conteo_lombrices,
+    observaciones,
+    fuente,
+    dispositivo_id,
+):
+    return (
+        existente.version == 1
+        and existente.estado == RegistroLombricultura.Estado.COMPLETO
+        and existente.cama_id == cama.id
+        and existente.ciclo_id == ciclo.id
+        and existente.capturada_en == capturada_en
+        and existente.ph_suelo == ph_suelo
+        and existente.conteo_lombrices == conteo_lombrices
+        and existente.observaciones == observaciones
+        and existente.fuente == fuente
+        and existente.dispositivo_id == dispositivo_id
+    )
+
+
+@transaction.atomic
+def crear_registro_lombricultura(
+    *,
+    actor,
+    cama,
+    capturada_en,
+    ph_suelo,
+    conteo_lombrices,
+    ciclo=None,
+    observaciones="",
+    fuente=RegistroLombricultura.Fuente.ANDROID,
+    dispositivo_id="",
+    registro_id=None,
+):
+    perfil = perfil_de(actor)
+    _validar_cama(perfil, cama)
+    ciclo = _ciclo_lombricultura_para_fecha(cama, capturada_en, ciclo)
+    if registro_id:
+        existente = RegistroLombricultura.objects.select_for_update().filter(pk=registro_id).first()
+        if existente:
+            if existente.cama.comunidad_id != perfil.comunidad_id:
+                raise PermissionDenied("El registro no pertenece a la comunidad del usuario.")
+            if existente.autor.user_id != actor.id and not actor.is_superuser:
+                raise PermissionDenied("El UUID ya pertenece a otro autor.")
+            if _registro_lombriz_equivale(
+                existente,
+                cama=cama,
+                ciclo=ciclo,
+                capturada_en=capturada_en,
+                ph_suelo=ph_suelo,
+                conteo_lombrices=conteo_lombrices,
+                observaciones=observaciones,
+                fuente=fuente,
+                dispositivo_id=dispositivo_id,
+            ):
+                return existente, False
+            raise ConflictoVersion(
+                "El UUID del registro de lombricultura ya existe con datos diferentes."
+            )
+
+    registro = RegistroLombricultura(
+        id=registro_id,
+        cama=cama,
+        ciclo=ciclo,
+        autor=perfil,
+        capturada_en=capturada_en,
+        ph_suelo=ph_suelo,
+        conteo_lombrices=conteo_lombrices,
+        observaciones=observaciones,
+        fuente=fuente,
+        dispositivo_id=dispositivo_id,
+    )
+    registro.full_clean()
+    registro.save()
+    _registrar_auditoria(
+        entidad=AuditoriaCambio.Entidad.REGISTRO_LOMBRIZ,
+        entidad_uuid=registro.id,
+        accion=AuditoriaCambio.Accion.CREAR,
+        actor=actor,
+        version_anterior=None,
+        version_nueva=1,
+        antes=None,
+        despues=snapshot_registro_lombricultura(registro),
+    )
+    return registro, True
+
+
+@transaction.atomic
+def corregir_registro_lombricultura(
+    *,
+    registro,
+    actor,
+    version_esperada,
+    cama,
+    capturada_en,
+    ph_suelo,
+    conteo_lombrices,
+    ciclo=None,
+    observaciones="",
+    dispositivo_id="",
+    motivo="",
+):
+    registro = RegistroLombricultura.objects.select_for_update().get(pk=registro.pk)
+    perfil = perfil_de(actor)
+    _validar_cama(perfil, registro.cama)
+    if not registro.puede_modificar(actor):
+        raise PermissionDenied("Solo el autor o el superusuario pueden corregir el registro.")
+    if registro.version != version_esperada:
+        raise ConflictoVersion(
+            f"El registro está en la versión {registro.version}; se recibió la {version_esperada}."
+        )
+    if registro.estado == RegistroLombricultura.Estado.ANULADO:
+        raise ValidationError("Un registro anulado no puede corregirse.")
+    _validar_cama(perfil, cama)
+    ciclo = _ciclo_lombricultura_para_fecha(cama, capturada_en, ciclo)
+    antes = snapshot_registro_lombricultura(registro)
+    registro.cama = cama
+    registro.ciclo = ciclo
+    registro.capturada_en = capturada_en
+    registro.ph_suelo = ph_suelo
+    registro.conteo_lombrices = conteo_lombrices
+    registro.observaciones = observaciones
+    registro.dispositivo_id = dispositivo_id
+    registro.version += 1
+    registro.full_clean()
+    registro.save()
+    _registrar_auditoria(
+        entidad=AuditoriaCambio.Entidad.REGISTRO_LOMBRIZ,
+        entidad_uuid=registro.id,
+        accion=AuditoriaCambio.Accion.CORREGIR,
+        actor=actor,
+        version_anterior=version_esperada,
+        version_nueva=registro.version,
+        antes=antes,
+        despues=snapshot_registro_lombricultura(registro),
+        motivo=motivo,
+    )
+    return registro
+
+
+@transaction.atomic
+def anular_registro_lombricultura(*, registro, actor, version_esperada, motivo):
+    registro = RegistroLombricultura.objects.select_for_update().get(pk=registro.pk)
+    perfil = perfil_de(actor)
+    _validar_cama(perfil, registro.cama)
+    if not registro.puede_modificar(actor):
+        raise PermissionDenied("Solo el autor o el superusuario pueden anular el registro.")
+    if not motivo.strip():
+        raise ValidationError("El motivo de anulación es obligatorio.")
+    if registro.version != version_esperada:
+        raise ConflictoVersion(
+            f"El registro está en la versión {registro.version}; se recibió la {version_esperada}."
+        )
+    if registro.estado == RegistroLombricultura.Estado.ANULADO:
+        return registro
+    antes = snapshot_registro_lombricultura(registro)
+    registro.estado = RegistroLombricultura.Estado.ANULADO
+    registro.anulada_por = actor
+    registro.anulada_en = timezone.now()
+    registro.motivo_anulacion = motivo.strip()
+    registro.version += 1
+    registro.save()
+    _registrar_auditoria(
+        entidad=AuditoriaCambio.Entidad.REGISTRO_LOMBRIZ,
+        entidad_uuid=registro.id,
+        accion=AuditoriaCambio.Accion.ANULAR,
+        actor=actor,
+        version_anterior=version_esperada,
+        version_nueva=registro.version,
+        antes=antes,
+        despues=snapshot_registro_lombricultura(registro),
+        motivo=motivo,
+    )
+    return registro

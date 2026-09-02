@@ -10,6 +10,12 @@ from django.db.models import Q
 from django.utils import timezone
 
 class Comunidad(models.Model):
+    id_publico = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        help_text="Identificador estable que puede exponerse a clientes sin revelar la PK interna.",
+    )
     codigo = models.SlugField(max_length=40, unique=True)
     nombre = models.CharField(max_length=120, unique=True)
     activa = models.BooleanField(default=True)
@@ -38,6 +44,90 @@ class Especie(models.Model):
         if self.nombre_cientifico:
             return f"{self.nombre_comun} ({self.nombre_cientifico})"
         return self.nombre_comun
+
+
+class PerfilSemaforoEspecie(models.Model):
+    """Umbrales versionados por especie; no reemplaza el criterio de un biólogo."""
+
+    especie = models.OneToOneField(
+        Especie,
+        on_delete=models.CASCADE,
+        related_name="perfil_semaforo",
+    )
+    version = models.CharField(max_length=30, default="1.0")
+    provisional = models.BooleanField(default=True)
+    supuesto_biologico = models.TextField(blank=True)
+    fuentes = models.JSONField(default=list, blank=True)
+
+    ph_critico_bajo = models.DecimalField(max_digits=5, decimal_places=2)
+    ph_ideal_bajo = models.DecimalField(max_digits=5, decimal_places=2)
+    ph_ideal_alto = models.DecimalField(max_digits=5, decimal_places=2)
+    ph_critico_alto = models.DecimalField(max_digits=5, decimal_places=2)
+    nitrito_amarillo_desde = models.DecimalField(max_digits=10, decimal_places=3)
+    nitrito_rojo_desde = models.DecimalField(max_digits=10, decimal_places=3)
+    nitrato_amarillo_desde = models.DecimalField(max_digits=10, decimal_places=3)
+    nitrato_rojo_desde = models.DecimalField(max_digits=10, decimal_places=3)
+    amoniaco_total_amarillo_desde = models.DecimalField(max_digits=10, decimal_places=3)
+    amoniaco_total_rojo_desde = models.DecimalField(max_digits=10, decimal_places=3)
+    nh3_amarillo_desde = models.DecimalField(max_digits=10, decimal_places=5)
+    nh3_rojo_desde = models.DecimalField(max_digits=10, decimal_places=5)
+
+    temperatura_critica_baja_c = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    temperatura_ideal_baja_c = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    temperatura_ideal_alta_c = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    temperatura_critica_alta_c = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    oxigeno_rojo_menor_que_mg_l = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    oxigeno_verde_desde_mg_l = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    turbidez_amarillo_desde_ntu = models.DecimalField(
+        max_digits=12, decimal_places=3, null=True, blank=True
+    )
+    turbidez_rojo_desde_ntu = models.DecimalField(
+        max_digits=12, decimal_places=3, null=True, blank=True
+    )
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "perfil de semáforo por especie"
+        verbose_name_plural = "perfiles de semáforo por especie"
+
+    def clean(self):
+        super().clean()
+        if not (
+            self.ph_critico_bajo
+            <= self.ph_ideal_bajo
+            <= self.ph_ideal_alto
+            <= self.ph_critico_alto
+        ):
+            raise ValidationError("Los límites de pH deben estar ordenados de menor a mayor.")
+        for amarillo, rojo, etiqueta in (
+            (self.nitrito_amarillo_desde, self.nitrito_rojo_desde, "nitrito"),
+            (self.nitrato_amarillo_desde, self.nitrato_rojo_desde, "nitrato"),
+            (
+                self.amoniaco_total_amarillo_desde,
+                self.amoniaco_total_rojo_desde,
+                "amoníaco total",
+            ),
+            (self.nh3_amarillo_desde, self.nh3_rojo_desde, "NH3"),
+        ):
+            if amarillo >= rojo:
+                raise ValidationError(
+                    f"El límite amarillo de {etiqueta} debe ser menor que el rojo."
+                )
+
+    def __str__(self):
+        return f"{self.especie.nombre_comun} · v{self.version}"
 
 
 class Acuicultor(models.Model):
@@ -85,7 +175,6 @@ class Acuicultor(models.Model):
 class Piscina(models.Model):
     class Tipo(models.TextChoices):
         PECES = "PECES", "Peces"
-        LOMBRICES = "LOMBRICES", "Lombrices"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     comunidad = models.ForeignKey(
@@ -103,7 +192,13 @@ class Piscina(models.Model):
     )
     nombre = models.CharField(max_length=120)
     codigo = models.CharField(max_length=30)
-    tipo = models.CharField(max_length=20, choices=Tipo.choices)
+    tipo = models.CharField(
+        max_length=20,
+        choices=Tipo.choices,
+        default=Tipo.PECES,
+        editable=False,
+        help_text="Campo legado fijado a PECES; las lombrices se gestionan en camas.",
+    )
     descripcion = models.TextField(blank=True)
     area_m2 = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     activa = models.BooleanField(default=True)
@@ -119,7 +214,7 @@ class Piscina(models.Model):
                 name="uq_piscina_codigo_comunidad",
             ),
             models.CheckConstraint(
-                condition=Q(tipo="LOMBRICES") | Q(especie__isnull=False),
+                condition=Q(tipo="PECES") & Q(especie__isnull=False),
                 name="ck_piscina_peces_con_especie",
             ),
         ]
@@ -127,10 +222,9 @@ class Piscina(models.Model):
     def clean(self):
         super().clean()
         self.codigo = self.codigo.strip().upper()
-        if self.tipo == self.Tipo.PECES and self.especie_id is None:
+        self.tipo = self.Tipo.PECES
+        if self.especie_id is None:
             raise ValidationError({"especie": "Una piscina de peces requiere especie."})
-        if self.tipo == self.Tipo.LOMBRICES and self.especie_id is not None:
-            raise ValidationError({"especie": "Lombricultura no usa una especie de pez."})
         if self.pk:
             anterior = type(self).objects.filter(pk=self.pk).values("especie_id").first()
             if anterior and anterior["especie_id"] != self.especie_id:
@@ -140,6 +234,203 @@ class Piscina(models.Model):
 
     def __str__(self):
         return f"{self.codigo} · {self.nombre}"
+
+
+class CamaLombrices(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    comunidad = models.ForeignKey(
+        Comunidad,
+        on_delete=models.PROTECT,
+        related_name="camas_lombrices",
+    )
+    nombre = models.CharField(max_length=120)
+    codigo = models.CharField(max_length=30)
+    descripcion = models.TextField(blank=True)
+    area_m2 = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    activa = models.BooleanField(default=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["nombre"]
+        verbose_name = "cama de lombrices"
+        verbose_name_plural = "camas de lombrices"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["comunidad", "codigo"],
+                name="uq_cama_codigo_comunidad",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        self.codigo = self.codigo.strip().upper()
+
+    def __str__(self):
+        return f"{self.codigo} · {self.nombre}"
+
+
+class CicloLombricultura(models.Model):
+    class Estado(models.TextChoices):
+        ACTIVO = "ACTIVO", "Activo"
+        CERRADO = "CERRADO", "Cerrado"
+        ANULADO = "ANULADO", "Anulado"
+
+    class Fuente(models.TextChoices):
+        WEB = "WEB", "Web"
+        ANDROID = "ANDROID", "Android"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cama = models.ForeignKey(
+        CamaLombrices,
+        on_delete=models.PROTECT,
+        related_name="ciclos",
+    )
+    numero = models.PositiveIntegerField()
+    estado = models.CharField(max_length=10, choices=Estado.choices, default=Estado.ACTIVO)
+    iniciado_en = models.DateTimeField()
+    conteo_inicial = models.PositiveIntegerField()
+    observaciones_apertura = models.TextField(blank=True)
+    autor_apertura = models.ForeignKey(
+        Acuicultor,
+        on_delete=models.PROTECT,
+        related_name="ciclos_lombricultura_abiertos",
+    )
+    fuente = models.CharField(max_length=12, choices=Fuente.choices, default=Fuente.WEB)
+    dispositivo_id = models.CharField(max_length=120, blank=True)
+    cerrado_en = models.DateTimeField(null=True, blank=True)
+    conteo_final = models.PositiveIntegerField(null=True, blank=True)
+    observaciones_cierre = models.TextField(blank=True)
+    autor_cierre = models.ForeignKey(
+        Acuicultor,
+        on_delete=models.PROTECT,
+        related_name="ciclos_lombricultura_cerrados",
+        null=True,
+        blank=True,
+    )
+    version = models.PositiveIntegerField(default=1)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    modificado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-iniciado_en", "-numero"]
+        verbose_name = "ciclo de lombricultura"
+        verbose_name_plural = "ciclos de lombricultura"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cama", "numero"], name="uq_ciclo_lombriz_numero_cama"
+            ),
+            models.UniqueConstraint(
+                fields=["cama"],
+                condition=Q(estado="ACTIVO"),
+                name="uq_ciclo_lombriz_activo_cama",
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1), name="ck_ciclo_lombriz_version"
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="ACTIVO",
+                        cerrado_en__isnull=True,
+                        conteo_final__isnull=True,
+                        autor_cierre__isnull=True,
+                    )
+                    | Q(estado="ANULADO")
+                    | Q(
+                        estado="CERRADO",
+                        cerrado_en__isnull=False,
+                        conteo_final__isnull=False,
+                        autor_cierre__isnull=False,
+                    )
+                ),
+                name="ck_ciclo_lombriz_cierre_estado",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.estado == self.Estado.CERRADO:
+            if self.cerrado_en is None or self.conteo_final is None or self.autor_cierre_id is None:
+                raise ValidationError("El cierre requiere fecha, conteo final y autor.")
+            if self.cerrado_en < self.iniciado_en:
+                raise ValidationError({"cerrado_en": "El cierre no puede preceder a la apertura."})
+
+    def __str__(self):
+        return f"{self.cama.codigo} · ciclo {self.numero}"
+
+
+class RegistroLombricultura(models.Model):
+    class Estado(models.TextChoices):
+        COMPLETO = "COMPLETO", "Completo"
+        ANULADO = "ANULADO", "Anulado"
+
+    class Fuente(models.TextChoices):
+        WEB = "WEB", "Web"
+        ANDROID = "ANDROID", "Android"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cama = models.ForeignKey(
+        CamaLombrices,
+        on_delete=models.PROTECT,
+        related_name="registros",
+    )
+    ciclo = models.ForeignKey(
+        CicloLombricultura,
+        on_delete=models.PROTECT,
+        related_name="registros",
+    )
+    autor = models.ForeignKey(
+        Acuicultor,
+        on_delete=models.PROTECT,
+        related_name="registros_lombricultura",
+    )
+    capturada_en = models.DateTimeField(default=timezone.now)
+    recibida_en = models.DateTimeField(auto_now_add=True)
+    ph_suelo = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        validators=[MinValueValidator(0), MaxValueValidator(14)],
+        verbose_name="pH del suelo",
+    )
+    conteo_lombrices = models.PositiveIntegerField(
+        help_text="Conteo observado de lombrices; no es una estimación automática."
+    )
+    observaciones = models.TextField(blank=True)
+    fuente = models.CharField(max_length=12, choices=Fuente.choices, default=Fuente.WEB)
+    dispositivo_id = models.CharField(max_length=120, blank=True)
+    estado = models.CharField(max_length=10, choices=Estado.choices, default=Estado.COMPLETO)
+    version = models.PositiveIntegerField(default=1)
+    creada_en = models.DateTimeField(auto_now_add=True)
+    modificada_en = models.DateTimeField(auto_now=True)
+    anulada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="registros_lombricultura_anulados",
+        null=True,
+        blank=True,
+    )
+    anulada_en = models.DateTimeField(null=True, blank=True)
+    motivo_anulacion = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-capturada_en", "-creada_en"]
+        verbose_name = "registro de lombricultura"
+        verbose_name_plural = "registros de lombricultura"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(version__gte=1), name="ck_registro_lombriz_version"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["cama", "-capturada_en"], name="ix_reg_lombriz_cama_fecha"),
+            models.Index(fields=["estado"], name="ix_reg_lombriz_estado"),
+        ]
+
+    def puede_modificar(self, usuario):
+        return usuario.is_superuser or self.autor.user_id == usuario.id
+
+    def __str__(self):
+        return f"{self.cama.codigo} · {self.capturada_en:%d/%m/%Y %H:%M}"
 
 
 class CicloProductivo(models.Model):
@@ -661,6 +952,8 @@ class AuditoriaCambio(models.Model):
         JORNADA = "JORNADA", "Jornada"
         MOVIMIENTO = "MOVIMIENTO", "Movimiento"
         CICLO = "CICLO", "Ciclo"
+        CICLO_LOMBRIZ = "CICLO_LOMBRIZ", "Ciclo de lombricultura"
+        REGISTRO_LOMBRIZ = "REGISTRO_LOMBRIZ", "Registro de lombricultura"
 
     class Accion(models.TextChoices):
         CREAR = "CREAR", "Crear"
@@ -669,6 +962,14 @@ class AuditoriaCambio(models.Model):
 
     entidad = models.CharField(max_length=20, choices=Entidad.choices)
     entidad_uuid = models.UUIDField()
+    comunidad = models.ForeignKey(
+        Comunidad,
+        on_delete=models.PROTECT,
+        related_name="eventos_auditoria",
+        null=True,
+        blank=True,
+        help_text="Se conserva nullable solo para auditorías históricas sin tenant recuperable.",
+    )
     accion = models.CharField(max_length=12, choices=Accion.choices)
     version_anterior = models.PositiveIntegerField(null=True, blank=True)
     version_nueva = models.PositiveIntegerField()

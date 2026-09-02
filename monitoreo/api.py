@@ -24,6 +24,8 @@ from cuentas.security import (
 )
 
 from .models import (
+    CamaLombrices,
+    CicloLombricultura,
     CicloProductivo,
     DispositivoSensor,
     Especie,
@@ -33,6 +35,7 @@ from .models import (
     MovimientoPoblacion,
     MuestraBiometrica,
     Piscina,
+    RegistroLombricultura,
 )
 from .recordatorios import recordatorios_piscina
 from .prediccion import calcular_prediccion
@@ -40,15 +43,20 @@ from .sensor_authentication import SensorAuthentication
 from .semaforo import evaluar_agua
 from .services import (
     ConflictoVersion,
+    anular_registro_lombricultura,
     anular_movimiento,
     anular_jornada,
     calcular_poblacion_teorica,
     cerrar_ciclo,
+    cerrar_ciclo_lombricultura,
+    corregir_registro_lombricultura,
     corregir_jornada,
     corregir_movimiento,
     crear_ciclo,
+    crear_ciclo_lombricultura,
     crear_jornada,
     crear_movimiento,
+    crear_registro_lombricultura,
     perfil_de,
 )
 
@@ -185,6 +193,49 @@ class CicloCierreSerializer(serializers.Serializer):
         required=False, allow_blank=True, default="", max_length=5000
     )
     piscina_destino_cierre = serializers.UUIDField(required=False, allow_null=True)
+
+
+class CicloLombriculturaAperturaSerializer(serializers.Serializer):
+    id = serializers.UUIDField(required=False)
+    cama = serializers.UUIDField()
+    iniciado_en = serializers.DateTimeField()
+    conteo_inicial = serializers.IntegerField(min_value=0)
+    observaciones_apertura = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=5000
+    )
+    dispositivo_id = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=120
+    )
+
+
+class CicloLombriculturaCierreSerializer(serializers.Serializer):
+    version = serializers.IntegerField(min_value=1)
+    cerrado_en = serializers.DateTimeField()
+    conteo_final = serializers.IntegerField(min_value=0)
+    observaciones_cierre = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=5000
+    )
+
+
+class RegistroLombriculturaSerializer(serializers.Serializer):
+    id = serializers.UUIDField(required=False)
+    cama = serializers.UUIDField()
+    ciclo = serializers.UUIDField(required=False, allow_null=True)
+    capturada_en = serializers.DateTimeField()
+    ph_suelo = serializers.DecimalField(
+        max_digits=4, decimal_places=2, min_value=0, max_value=14
+    )
+    conteo_lombrices = serializers.IntegerField(min_value=0)
+    observaciones = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=5000
+    )
+    dispositivo_id = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=120
+    )
+    version = serializers.IntegerField(required=False, min_value=1)
+    motivo_correccion = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=1000
+    )
 
 
 class LecturaSensorSerializer(serializers.Serializer):
@@ -401,6 +452,46 @@ def ciclo_json(ciclo):
     }
 
 
+def ciclo_lombricultura_json(ciclo):
+    return {
+        "id": str(ciclo.id),
+        "cama": str(ciclo.cama_id),
+        "cama_codigo": ciclo.cama.codigo,
+        "numero": ciclo.numero,
+        "estado": ciclo.estado,
+        "iniciado_en": ciclo.iniciado_en.isoformat(),
+        "conteo_inicial": ciclo.conteo_inicial,
+        "observaciones_apertura": ciclo.observaciones_apertura,
+        "autor_apertura": _autor_json(ciclo.autor_apertura),
+        "fuente": ciclo.fuente,
+        "dispositivo_id": ciclo.dispositivo_id,
+        "cerrado_en": ciclo.cerrado_en.isoformat() if ciclo.cerrado_en else None,
+        "conteo_final": ciclo.conteo_final,
+        "observaciones_cierre": ciclo.observaciones_cierre,
+        "autor_cierre": _autor_json(ciclo.autor_cierre) if ciclo.autor_cierre else None,
+        "version": ciclo.version,
+    }
+
+
+def registro_lombricultura_json(registro):
+    return {
+        "id": str(registro.id),
+        "cama": str(registro.cama_id),
+        "ciclo": str(registro.ciclo_id),
+        "cama_codigo": registro.cama.codigo,
+        "autor": _autor_json(registro.autor),
+        "capturada_en": registro.capturada_en.isoformat(),
+        "recibida_en": registro.recibida_en.isoformat(),
+        "ph_suelo": str(registro.ph_suelo),
+        "conteo_lombrices": registro.conteo_lombrices,
+        "observaciones": registro.observaciones,
+        "fuente": registro.fuente,
+        "dispositivo_id": registro.dispositivo_id,
+        "estado": registro.estado,
+        "version": registro.version,
+    }
+
+
 def recordatorios_json(piscina):
     resultado = recordatorios_piscina(piscina)
     ciclo = resultado.pop("ciclo")
@@ -457,7 +548,11 @@ class LoginApiView(APIView):
                     "correo": usuario.email,
                     "nombre": usuario.get_full_name() or perfil.nickname,
                     "rol": perfil.rol,
-                    "comunidad": {"codigo": perfil.comunidad.codigo, "nombre": perfil.comunidad.nombre},
+                    "comunidad": {
+                        "id_publico": str(perfil.comunidad.id_publico),
+                        "codigo": perfil.comunidad.codigo,
+                        "nombre": perfil.comunidad.nombre,
+                    },
                 },
             }
         )
@@ -511,15 +606,23 @@ class MeApiView(APIView):
                 "correo": request.user.email,
                 "nombre": request.user.get_full_name() or perfil.nickname,
                 "rol": perfil.rol,
-                "comunidad": {"codigo": perfil.comunidad.codigo, "nombre": perfil.comunidad.nombre},
+                "comunidad": {
+                    "id_publico": str(perfil.comunidad.id_publico),
+                    "codigo": perfil.comunidad.codigo,
+                    "nombre": perfil.comunidad.nombre,
+                },
             }
         )
 
 
 class EspeciesApiView(APIView):
     def get(self, request):
-        perfil_de(request.user)
-        especies = Especie.objects.filter(activa=True)
+        perfil = perfil_de(request.user)
+        especies = Especie.objects.filter(
+            activa=True,
+            piscinas__comunidad=perfil.comunidad,
+            piscinas__activa=True,
+        ).distinct()
         return Response([{"id": item.id, "nombre_comun": item.nombre_comun, "nombre_cientifico": item.nombre_cientifico} for item in especies])
 
 
@@ -574,7 +677,10 @@ class CiclosApiView(APIView):
         serializer = CicloAperturaSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         datos = serializer.validated_data
-        piscina = get_object_or_404(Piscina, pk=datos.pop("piscina"))
+        perfil = perfil_de(request.user)
+        piscina = get_object_or_404(
+            Piscina, pk=datos.pop("piscina"), comunidad=perfil.comunidad
+        )
         try:
             ciclo, creado = crear_ciclo(
                 actor=request.user,
@@ -620,7 +726,9 @@ class CicloCerrarApiView(CicloDetalleApiView):
         datos = serializer.validated_data
         piscina_destino_id = datos.pop("piscina_destino_cierre", None)
         piscina_destino = (
-            get_object_or_404(Piscina, pk=piscina_destino_id)
+            get_object_or_404(
+                Piscina, pk=piscina_destino_id, comunidad=perfil_de(request.user).comunidad
+            )
             if piscina_destino_id
             else None
         )
@@ -686,9 +794,18 @@ class JornadasApiView(APIView):
         serializer = JornadaEscrituraSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         datos = serializer.validated_data
-        piscina = get_object_or_404(Piscina, pk=datos.pop("piscina"))
+        perfil = perfil_de(request.user)
+        piscina = get_object_or_404(
+            Piscina, pk=datos.pop("piscina"), comunidad=perfil.comunidad
+        )
         ciclo_id = datos.pop("ciclo", None)
-        ciclo = get_object_or_404(CicloProductivo, pk=ciclo_id) if ciclo_id else None
+        ciclo = (
+            get_object_or_404(
+                CicloProductivo, pk=ciclo_id, piscina__comunidad=perfil.comunidad
+            )
+            if ciclo_id
+            else None
+        )
         datos.pop("version", None)
         datos.pop("motivo_correccion", None)
         try:
@@ -724,9 +841,18 @@ class JornadaDetalleApiView(APIView):
         version = datos.pop("version", None)
         if version is None:
             return Response({"version": ["La versión actual es obligatoria para corregir."]}, status=status.HTTP_400_BAD_REQUEST)
-        piscina = get_object_or_404(Piscina, pk=datos.pop("piscina"))
+        perfil = perfil_de(request.user)
+        piscina = get_object_or_404(
+            Piscina, pk=datos.pop("piscina"), comunidad=perfil.comunidad
+        )
         ciclo_id = datos.pop("ciclo", None)
-        ciclo = get_object_or_404(CicloProductivo, pk=ciclo_id) if ciclo_id else None
+        ciclo = (
+            get_object_or_404(
+                CicloProductivo, pk=ciclo_id, piscina__comunidad=perfil.comunidad
+            )
+            if ciclo_id
+            else None
+        )
         datos.pop("id", None)
         motivo = datos.pop("motivo_correccion", "")
         try:
@@ -770,6 +896,7 @@ class MovimientosApiView(APIView):
     def post(self, request):
         serializer = MovimientoEscrituraSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        perfil = perfil_de(request.user)
         datos = serializer.validated_data
         datos.pop("version", None)
         datos.pop("motivo_correccion", None)
@@ -777,10 +904,10 @@ class MovimientosApiView(APIView):
         destino_id = datos.pop("piscina_destino", None)
         ciclo_origen_id = datos.pop("ciclo_origen", None)
         ciclo_destino_id = datos.pop("ciclo_destino", None)
-        origen = get_object_or_404(Piscina, pk=origen_id) if origen_id else None
-        destino = get_object_or_404(Piscina, pk=destino_id) if destino_id else None
-        ciclo_origen = get_object_or_404(CicloProductivo, pk=ciclo_origen_id) if ciclo_origen_id else None
-        ciclo_destino = get_object_or_404(CicloProductivo, pk=ciclo_destino_id) if ciclo_destino_id else None
+        origen = get_object_or_404(Piscina, pk=origen_id, comunidad=perfil.comunidad) if origen_id else None
+        destino = get_object_or_404(Piscina, pk=destino_id, comunidad=perfil.comunidad) if destino_id else None
+        ciclo_origen = get_object_or_404(CicloProductivo, pk=ciclo_origen_id, piscina__comunidad=perfil.comunidad) if ciclo_origen_id else None
+        ciclo_destino = get_object_or_404(CicloProductivo, pk=ciclo_destino_id, piscina__comunidad=perfil.comunidad) if ciclo_destino_id else None
         try:
             movimiento, creado = crear_movimiento(
                 actor=request.user,
@@ -812,6 +939,7 @@ class MovimientoDetalleApiView(APIView):
         movimiento = self._obtener(request, movimiento_id)
         serializer = MovimientoEscrituraSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        perfil = perfil_de(request.user)
         datos = serializer.validated_data
         version = datos.pop("version", None)
         if version is None:
@@ -820,10 +948,10 @@ class MovimientoDetalleApiView(APIView):
         destino_id = datos.pop("piscina_destino", None)
         ciclo_origen_id = datos.pop("ciclo_origen", None)
         ciclo_destino_id = datos.pop("ciclo_destino", None)
-        origen = get_object_or_404(Piscina, pk=origen_id) if origen_id else None
-        destino = get_object_or_404(Piscina, pk=destino_id) if destino_id else None
-        ciclo_origen = get_object_or_404(CicloProductivo, pk=ciclo_origen_id) if ciclo_origen_id else None
-        ciclo_destino = get_object_or_404(CicloProductivo, pk=ciclo_destino_id) if ciclo_destino_id else None
+        origen = get_object_or_404(Piscina, pk=origen_id, comunidad=perfil.comunidad) if origen_id else None
+        destino = get_object_or_404(Piscina, pk=destino_id, comunidad=perfil.comunidad) if destino_id else None
+        ciclo_origen = get_object_or_404(CicloProductivo, pk=ciclo_origen_id, piscina__comunidad=perfil.comunidad) if ciclo_origen_id else None
+        ciclo_destino = get_object_or_404(CicloProductivo, pk=ciclo_destino_id, piscina__comunidad=perfil.comunidad) if ciclo_destino_id else None
         datos.pop("id", None)
         motivo = datos.pop("motivo_correccion", "")
         try:
@@ -860,6 +988,247 @@ class MovimientoAnularApiView(APIView):
         except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
             return _respuesta_error(error)
         return Response(movimiento_json(movimiento))
+
+
+class CamasLombricesApiView(APIView):
+    def get(self, request):
+        perfil = perfil_de(request.user)
+        camas = CamaLombrices.objects.filter(
+            comunidad=perfil.comunidad, activa=True
+        ).order_by("nombre")
+        resultado = []
+        for cama in camas:
+            ciclo = (
+                cama.ciclos.filter(estado=CicloLombricultura.Estado.ACTIVO)
+                .select_related("cama", "autor_apertura", "autor_apertura__user")
+                .first()
+            )
+            ultimo = (
+                cama.registros.filter(estado=RegistroLombricultura.Estado.COMPLETO)
+                .select_related("cama", "ciclo", "autor", "autor__user")
+                .first()
+            )
+            resultado.append(
+                {
+                    "id": str(cama.id),
+                    "codigo": cama.codigo,
+                    "nombre": cama.nombre,
+                    "descripcion": cama.descripcion,
+                    "area_m2": str(cama.area_m2) if cama.area_m2 is not None else None,
+                    "ciclo_activo": ciclo_lombricultura_json(ciclo) if ciclo else None,
+                    "ultimo_registro": registro_lombricultura_json(ultimo) if ultimo else None,
+                }
+            )
+        return Response(resultado)
+
+
+class CiclosLombriculturaApiView(APIView):
+    def get(self, request):
+        perfil = perfil_de(request.user)
+        ciclos = (
+            CicloLombricultura.objects.filter(cama__comunidad=perfil.comunidad)
+            .select_related(
+                "cama",
+                "autor_apertura",
+                "autor_apertura__user",
+                "autor_cierre",
+                "autor_cierre__user",
+            )[:200]
+        )
+        return Response([ciclo_lombricultura_json(item) for item in ciclos])
+
+    def post(self, request):
+        serializer = CicloLombriculturaAperturaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        perfil = perfil_de(request.user)
+        datos = serializer.validated_data
+        cama = get_object_or_404(
+            CamaLombrices,
+            pk=datos.pop("cama"),
+            comunidad=perfil.comunidad,
+            activa=True,
+        )
+        try:
+            ciclo, creado = crear_ciclo_lombricultura(
+                actor=request.user,
+                cama=cama,
+                ciclo_id=datos.pop("id", None),
+                fuente=CicloLombricultura.Fuente.ANDROID,
+                **datos,
+            )
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response(
+            ciclo_lombricultura_json(ciclo),
+            status=status.HTTP_201_CREATED if creado else status.HTTP_200_OK,
+        )
+
+
+class CicloLombriculturaDetalleApiView(APIView):
+    def _obtener(self, request, ciclo_id):
+        perfil = perfil_de(request.user)
+        return get_object_or_404(
+            CicloLombricultura.objects.filter(cama__comunidad=perfil.comunidad)
+            .select_related(
+                "cama",
+                "autor_apertura",
+                "autor_apertura__user",
+                "autor_cierre",
+                "autor_cierre__user",
+            ),
+            pk=ciclo_id,
+        )
+
+    def get(self, request, ciclo_id):
+        return Response(ciclo_lombricultura_json(self._obtener(request, ciclo_id)))
+
+
+class CicloLombriculturaCerrarApiView(CicloLombriculturaDetalleApiView):
+    def post(self, request, ciclo_id):
+        ciclo = self._obtener(request, ciclo_id)
+        serializer = CicloLombriculturaCierreSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        try:
+            ciclo, _ = cerrar_ciclo_lombricultura(
+                ciclo=ciclo,
+                actor=request.user,
+                version_esperada=datos.pop("version"),
+                **datos,
+            )
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response(ciclo_lombricultura_json(ciclo))
+
+
+class RegistrosLombriculturaApiView(APIView):
+    def get(self, request):
+        perfil = perfil_de(request.user)
+        registros = (
+            RegistroLombricultura.objects.filter(cama__comunidad=perfil.comunidad)
+            .select_related("cama", "ciclo", "autor", "autor__user")[:200]
+        )
+        return Response([registro_lombricultura_json(item) for item in registros])
+
+    def post(self, request):
+        serializer = RegistroLombriculturaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        perfil = perfil_de(request.user)
+        datos = serializer.validated_data
+        cama = get_object_or_404(
+            CamaLombrices,
+            pk=datos.pop("cama"),
+            comunidad=perfil.comunidad,
+            activa=True,
+        )
+        ciclo_id = datos.pop("ciclo", None)
+        ciclo = (
+            get_object_or_404(
+                CicloLombricultura,
+                pk=ciclo_id,
+                cama__comunidad=perfil.comunidad,
+            )
+            if ciclo_id
+            else None
+        )
+        datos.pop("version", None)
+        datos.pop("motivo_correccion", None)
+        try:
+            registro, creado = crear_registro_lombricultura(
+                actor=request.user,
+                cama=cama,
+                ciclo=ciclo,
+                registro_id=datos.pop("id", None),
+                fuente=RegistroLombricultura.Fuente.ANDROID,
+                **datos,
+            )
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response(
+            registro_lombricultura_json(registro),
+            status=status.HTTP_201_CREATED if creado else status.HTTP_200_OK,
+        )
+
+
+class RegistroLombriculturaDetalleApiView(APIView):
+    def _obtener(self, request, registro_id):
+        perfil = perfil_de(request.user)
+        return get_object_or_404(
+            RegistroLombricultura.objects.filter(cama__comunidad=perfil.comunidad)
+            .select_related("cama", "ciclo", "autor", "autor__user"),
+            pk=registro_id,
+        )
+
+    def get(self, request, registro_id):
+        return Response(registro_lombricultura_json(self._obtener(request, registro_id)))
+
+    def put(self, request, registro_id):
+        registro = self._obtener(request, registro_id)
+        serializer = RegistroLombriculturaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        perfil = perfil_de(request.user)
+        datos = serializer.validated_data
+        version = datos.pop("version", None)
+        if version is None:
+            return Response(
+                {"version": ["La versión actual es obligatoria para corregir."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        cama = get_object_or_404(
+            CamaLombrices,
+            pk=datos.pop("cama"),
+            comunidad=perfil.comunidad,
+            activa=True,
+        )
+        ciclo_id = datos.pop("ciclo", None)
+        ciclo = (
+            get_object_or_404(
+                CicloLombricultura,
+                pk=ciclo_id,
+                cama__comunidad=perfil.comunidad,
+            )
+            if ciclo_id
+            else None
+        )
+        datos.pop("id", None)
+        motivo = datos.pop("motivo_correccion", "")
+        try:
+            registro = corregir_registro_lombricultura(
+                registro=registro,
+                actor=request.user,
+                version_esperada=version,
+                cama=cama,
+                ciclo=ciclo,
+                motivo=motivo,
+                **datos,
+            )
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response(registro_lombricultura_json(registro))
+
+
+class RegistroLombriculturaAnularApiView(APIView):
+    def post(self, request, registro_id):
+        perfil = perfil_de(request.user)
+        registro = get_object_or_404(
+            RegistroLombricultura.objects.filter(
+                cama__comunidad=perfil.comunidad,
+                autor=perfil,
+            ).select_related("cama", "ciclo", "autor", "autor__user"),
+            pk=registro_id,
+        )
+        serializer = AnulacionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            registro = anular_registro_lombricultura(
+                registro=registro,
+                actor=request.user,
+                version_esperada=serializer.validated_data["version"],
+                motivo=serializer.validated_data["motivo"],
+            )
+        except (ConflictoVersion, PermissionDenied, DjangoValidationError) as error:
+            return _respuesta_error(error)
+        return Response(registro_lombricultura_json(registro))
 
 
 class LecturasSensorLoteApiView(APIView):
@@ -960,5 +1329,3 @@ class SemaforosApiView(APIView):
                 }
             )
         return Response(resultado)
-    LecturaSensor,
-    crear_ciclo,

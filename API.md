@@ -1,4 +1,4 @@
-# Contrato REST de PaiPayTech v1.5-dev
+# Contrato REST de PaiPayTech v1.6-dev
 
 Base: `/api/v1/`. Todas las rutas, salvo `health` y `auth/login`, requieren:
 
@@ -28,7 +28,8 @@ Content-Type: application/json
   `password_actual`, `password_nuevo` y `confirmacion`. Al completarse revoca
   todas las sesiones web y móviles de esa cuenta, por lo que se debe iniciar
   sesión otra vez.
-- `GET auth/me/`: usuario, rol y comunidad.
+- `GET auth/me/`: usuario, rol y comunidad. La comunidad expone `id_publico`
+  (UUID), `codigo` y `nombre`, nunca su PK numérica interna.
 
 Cada instalación tiene una sesión independiente y un usuario puede usar varios
 teléfonos simultáneamente. La vigencia es deslizante: cada solicitud autenticada
@@ -45,10 +46,16 @@ un fallo normal y `429` cuando el acceso está bloqueado.
 
 ## Catálogos y semáforo
 
-- `GET catalogos/especies/`.
+- `GET catalogos/especies/`: solo especies asociadas a piscinas de la comunidad.
 - `GET catalogos/piscinas/`: piscinas de la comunidad, población teórica,
   ciclo activo y estados informativos de agua/biometría.
+- `GET catalogos/camas/`: camas activas de lombricultura de la comunidad, ciclo
+  activo y último registro.
 - `GET semaforos/`: última jornada comunitaria con agua por piscina. No descarga el historial comunitario completo.
+
+Todos los querysets se filtran con la comunidad del perfil autenticado. Un UUID
+válido perteneciente a otra comunidad responde `404` para no confirmar la
+existencia del objeto.
 
 ## Ciclos productivos
 
@@ -174,9 +181,44 @@ dispositivo y con lecturas UUID idempotentes. Cada lectura admite uno o más de:
 oxígeno disuelto (`mg/L`), temperatura (`°C`) y turbidez (`NTU`). El dispositivo
 solo escribe para su piscina y puede enviar datos aun si no hay ciclo activo.
 
-En `1.5-dev`, `SENSORES_HABILITADOS=False` es obligatorio: el endpoint responde
+En `1.6-dev`, `SENSORES_HABILITADOS=False` es obligatorio: el endpoint responde
 `404`, no se emiten credenciales de hardware y los modelos quedan preparados
 para una integración posterior.
+
+## Lombricultura
+
+- `GET/POST lombricultura/ciclos/`.
+- `GET lombricultura/ciclos/{uuid}/`.
+- `POST lombricultura/ciclos/{uuid}/cerrar/`.
+- `GET/POST lombricultura/registros/`.
+- `GET/PUT lombricultura/registros/{uuid}/`.
+- `POST lombricultura/registros/{uuid}/anular/`.
+
+Solo puede existir un ciclo activo por cama. La apertura exige fecha/hora y
+conteo inicial real; el cierre exige fecha/hora y conteo final real. Ambos
+conteos aceptan cero y el final puede ser menor, igual o mayor porque las
+lombrices pueden morir, mantenerse o reproducirse. No existen movimientos,
+pesos ni predicción para camas.
+
+```json
+{
+  "id": "34aed38d-94df-42a2-881d-b27f20599538",
+  "cama": "a96fbddf-e90f-44fa-bb57-bb1b37cdd8fb",
+  "ciclo": "16654a1c-9d8f-4cce-9968-699436679765",
+  "capturada_en": "2026-09-01T15:00:00-05:00",
+  "ph_suelo": "7.35",
+  "conteo_lombrices": 180,
+  "observaciones": "Se observó reproducción",
+  "dispositivo_id": "android-a1b2c3"
+}
+```
+
+El pH del suelo se escribe manualmente entre 0 y 14 con hasta dos decimales. El
+conteo es un entero observado igual o mayor que cero. No hay recordatorios ni
+semáforo de lombricultura en esta versión. Creación, corrección, anulación,
+idempotencia, autoría, auditoría y conflictos `409` siguen la misma política que
+las jornadas. Un UUID existente de otro autor responde `403`, aunque el contenido
+coincida: la idempotencia nunca transfiere autoría.
 
 ## Borrado y auditoría
 

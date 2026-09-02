@@ -1,11 +1,15 @@
 # PaiPayTech Django
 
-Backend, web comunitaria y API REST del sistema de monitoreo acuícola de Paipayales.
+Backend, web comunitaria y API REST del sistema PaiPayTech para comunidades de
+acuicultura y lombricultura.
 
-## Alcance v1.5-dev
+## Alcance v1.6-dev
 
 - Usuarios administrados en Django e inicio de sesión por correo.
-- Comunidad, especies y piscinas; una especie permanente por piscina de peces.
+- Varias comunidades aisladas; cada cuenta pertenece exactamente a una.
+- Especies globales y piscinas de peces con una especie permanente.
+- Camas de lombrices separadas de las piscinas, con ciclos, pH del suelo y
+  conteo real de lombrices.
 - Ciclos productivos desde población inicial hasta cierre completo de la cohorte.
 - Predicción transparente por mediana de supervivencia histórica de la misma piscina.
 - Jornadas con agua, biometría o ambos bloques y población estimada obligatoria.
@@ -13,9 +17,10 @@ Backend, web comunitaria y API REST del sistema de monitoreo acuícola de Paipay
 - Peces anónimos con peso en gramos y longitud total en centímetros.
 - Movimientos explícitos de población y cálculo de población teórica.
 - Correcciones con versión optimista y anulaciones lógicas auditadas.
-- API para Android con UUID idempotentes y semáforo comunitario.
+- API para Android con UUID idempotentes, comunidad identificada mediante UUID
+  público y semáforo por perfil de especie.
 - Estructura futura de sensores horarios vía API, deshabilitada por configuración.
-- Lombricultura visible como “Próximamente”; laboratorio fuera de v1.4.
+- Ensayos de laboratorio fuera del alcance vigente.
 - Neon PostgreSQL como base compartida y Railway como destino de despliegue.
 
 El contrato móvil está documentado en [API.md](API.md), la línea base de
@@ -34,8 +39,8 @@ python manage.py seed_demo
 python manage.py runserver
 ```
 
-La base local conserva el archivo `db_v14.sqlite3` y aplica la migración de
-v1.5. El antiguo `db.sqlite3` no se modifica y queda como respaldo del prototipo.
+La base local conserva el archivo `db_v14.sqlite3` y aplica las migraciones de
+v1.6. El antiguo `db.sqlite3` no se modifica y queda como respaldo del prototipo.
 
 El comando muestra credenciales aleatorias únicamente cuando crea las cuentas.
 Si las cuentas ya existen y necesitas claves nuevas, ejecuta:
@@ -46,7 +51,7 @@ python manage.py seed_demo --rotar-claves
 
 Las claves demo no se guardan en Git. Este comando es solo para desarrollo
 local: se bloquea con `DEBUG=False` y también ante cualquier base que no sea
-SQLite. Nunca debe ejecutarse en Neon. Tampoco crea `LOM-01`.
+SQLite. Nunca debe ejecutarse en Neon ni crear una piscina legada para lombrices.
 
 ## Dependencias reproducibles
 
@@ -81,16 +86,18 @@ mínimo confirmado con:
 python manage.py inicializar_catalogo_paipayales
 ```
 
-El comando es idempotente y crea únicamente:
+Aunque conserva su nombre histórico, el comando es idempotente y crea o valida
+el catálogo multi-comunidad confirmado:
 
-- comunidad `Paipayales`;
-- especie Vieja Azul (*Andinoacara rivulatus*);
-- `P-01 · Piscina 1 Paipayales`, sin área ni descripción inventadas.
+- `Paipayales`: Vieja Azul (*Andinoacara rivulatus*), piscina `P-01` y cama
+  `C-01`, sin áreas inventadas;
+- `Colegio Galo Plaza Lasso`: Tilapia, piscina `P-01` y ninguna cama;
+- perfiles versionados de semáforo para ambas especies. El perfil de Tilapia es
+  provisional hasta confirmar el nombre científico y validarlo con un profesional.
 
-No crea usuarios, contraseñas, jornadas ni `LOM-01`. Si encuentra esos códigos
-con una identidad incompatible, se detiene en vez de sobrescribir información.
-La tarjeta `Lombricultura · Próximamente` es estática y no representa una fila
-de la base de datos.
+No crea usuarios, contraseñas, ciclos ni registros operativos. Si encuentra esos
+códigos con una identidad incompatible, se detiene en vez de sobrescribir
+información.
 
 ## Alta manual de usuarios operativos
 
@@ -108,19 +115,22 @@ base vacía de Neon—:
 
 ```powershell
 # Una sola cuenta para mantenimiento técnico completo
-python manage.py crear_usuario_operativo --rol tecnico
+python manage.py crear_usuario_operativo --rol tecnico --comunidad paipayales
 
 # Ejecutar tres veces, con correos distintos
-python manage.py crear_usuario_operativo --rol administrador
+python manage.py crear_usuario_operativo --rol administrador --comunidad paipayales
 
 # Ejecutar dos veces, con correos distintos
-python manage.py crear_usuario_operativo --rol acuicultor
+python manage.py crear_usuario_operativo --rol acuicultor --comunidad paipayales
 ```
 
 El usuario `tecnico` es el único superusuario. Los administradores funcionales
-pueden gestionar cuentas ordinarias, especies y piscinas, y consultar jornadas
-y auditorías; no pueden convertirse en superusuarios, asignar grupos o permisos,
-eliminar datos ni modificar directamente cuentas privilegiadas. Los
+pueden gestionar cuentas ordinarias, piscinas y camas de su comunidad, y
+consultar los datos y auditorías de esa misma comunidad. Las especies y sus
+perfiles son catálogos globales administrados solo por el superusuario técnico.
+Los administradores funcionales no pueden convertirse en superusuarios, asignar
+grupos o permisos, eliminar datos ni modificar directamente cuentas
+privilegiadas. Los
 acuicultores no tienen acceso a Django Admin y usan la web/API comunitaria.
 
 No se deben usar correos ni contraseñas reales en ejemplos, migraciones,
@@ -154,8 +164,9 @@ python manage.py limpiar_datos_operativos_desarrollo --ejecutar --confirmar BORR
 ```
 
 El comando rechaza producción y elimina jornadas, movimientos, ciclos,
-auditorías operativas, lecturas y dispositivos sensores ficticios. Conserva
-usuarios, perfiles, comunidad, especies y piscinas.
+auditorías operativas, registros/ciclos de lombricultura, lecturas y dispositivos
+sensores ficticios. Conserva usuarios, perfiles, comunidades, especies,
+piscinas y camas.
 
 ## Railway + Neon
 

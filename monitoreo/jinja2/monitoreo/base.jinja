@@ -36,7 +36,7 @@
     <header class="sticky top-0 z-40 border-b border-stone-200/80 bg-white/90 backdrop-blur-xl">
         <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
             <a href="{{ url('monitoreo:dashboard') }}" class="flex items-center gap-3" aria-label="Ir al panel principal">
-                <img src="{{ static('monitoreo/img/paipay-logo.png') }}" alt="PaiPay Santa Lucía" class="h-12 w-auto object-contain">
+                <img src="{{ static('monitoreo/img/paipay-logo.png') }}" alt="PaiPayTech" class="h-12 w-auto object-contain">
                 <div class="hidden border-l border-stone-200 pl-3 sm:block">
                     <p class="text-xs font-semibold uppercase tracking-[0.22em] text-brand-green">PaiPayTech</p>
                     <p class="text-sm text-stone-500">Monitoreo acuícola</p>
@@ -49,7 +49,7 @@
                 </a>
                 <div class="hidden text-right md:block">
                     <p class="text-sm font-semibold text-brand-brown">{{ user.get_full_name() or user.email }}</p>
-                    <p class="text-xs text-stone-500">Acuicultor</p>
+                    <p class="text-xs text-stone-500">{{ request.user.perfil_acuicultor.get_rol_display() }} · {{ request.user.perfil_acuicultor.comunidad.nombre }}</p>
                 </div>
                 <div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand-green/15 text-sm font-bold text-brand-brown">
                     {{ (user.first_name or user.email)[0]|upper }}
@@ -82,7 +82,7 @@
     {% if user.is_authenticated %}
     <footer class="mt-14 border-t border-stone-200 bg-white/70">
         <div class="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-7 text-sm text-stone-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-            <p><span class="font-semibold text-brand-brown">PaiPayTech</span> · Santa Lucía</p>
+            <p><span class="font-semibold text-brand-brown">PaiPayTech</span>{% if request.user.is_authenticated %} · {{ request.user.perfil_acuicultor.comunidad.nombre }}{% endif %}</p>
             <p>MVP de monitoreo acuícola · {{ now().year }}</p>
         </div>
     </footer>

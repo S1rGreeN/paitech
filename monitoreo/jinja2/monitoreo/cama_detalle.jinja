@@ -1,0 +1,45 @@
+{% extends "monitoreo/base.jinja" %}
+
+{% block title %}{{ cama.nombre }} · PaiPayTech{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <a href="{{ url('monitoreo:dashboard') }}" class="text-sm font-bold text-stone-500 hover:text-brand-brown">← Volver al panel</a>
+    <div class="mt-5 overflow-hidden rounded-[2rem] border border-amber-200 bg-white brand-shadow">
+        <div class="bg-gradient-to-br from-amber-100 to-lime-100 p-7 sm:p-9">
+            <span class="rounded-full bg-white/70 px-3 py-1 text-xs font-black uppercase tracking-wider text-amber-800">Cama · {{ cama.codigo }}</span>
+            <h1 class="mt-4 text-3xl font-black text-brand-brown">{{ cama.nombre }}</h1>
+            <p class="mt-2 text-stone-600">{{ cama.descripcion or 'pH del suelo y conteo observado de lombrices.' }}</p>
+            <div class="mt-6 flex flex-wrap gap-3">
+                {% if ciclo_activo %}
+                <a href="{{ url('monitoreo:registro_lombricultura_nuevo', cama_id=cama.id) }}" class="rounded-2xl bg-brand-brown px-5 py-3 font-bold text-white">Nuevo registro</a>
+                <a href="{{ url('monitoreo:ciclo_lombricultura_cerrar', ciclo_id=ciclo_activo.id) }}" class="rounded-2xl border border-brand-brown/30 bg-white/60 px-5 py-3 font-bold text-brand-brown">Cerrar ciclo</a>
+                {% else %}
+                <a href="{{ url('monitoreo:ciclo_lombricultura_abrir', cama_id=cama.id) }}" class="rounded-2xl bg-brand-brown px-5 py-3 font-bold text-white">Iniciar ciclo</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="grid divide-y divide-stone-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div class="p-6"><p class="text-sm text-stone-500">Registros</p><p class="mt-2 text-3xl font-black text-brand-brown">{{ registros|length }}</p></div>
+            <div class="p-6"><p class="text-sm text-stone-500">pH promedio</p><p class="mt-2 text-3xl font-black text-brand-brown">{% if promedio_ph is not none %}{{ promedio_ph|round(2) }}{% else %}—{% endif %}</p></div>
+            <div class="p-6"><p class="text-sm text-stone-500">Ciclo</p><p class="mt-2 text-xl font-black text-brand-brown">{% if ciclo_activo %}{{ ciclo_activo.numero }} activo{% else %}Sin ciclo activo{% endif %}</p></div>
+        </div>
+    </div>
+</section>
+
+<section class="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
+    <div class="overflow-hidden rounded-[2rem] border border-stone-200 bg-white brand-shadow">
+        <div class="border-b border-stone-100 px-6 py-5 sm:px-8"><h2 class="text-xl font-black text-brand-brown">Historial de lombricultura</h2></div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-left text-sm">
+                <thead class="bg-stone-50 text-xs uppercase tracking-wider text-stone-500"><tr><th class="px-6 py-4">Fecha</th><th class="px-6 py-4">pH suelo</th><th class="px-6 py-4">Conteo</th><th class="px-6 py-4">Autor</th><th></th></tr></thead>
+                <tbody class="divide-y divide-stone-100">
+                    {% for registro in registros %}
+                    <tr><td class="px-6 py-4">{{ registro.capturada_en.strftime('%d/%m/%Y %H:%M') }}</td><td class="px-6 py-4 font-bold">{{ registro.ph_suelo }}</td><td class="px-6 py-4">{{ registro.conteo_lombrices }}</td><td class="px-6 py-4">{{ registro.autor.nickname }}</td><td class="px-6 py-4 text-right"><a class="font-bold text-brand-green" href="{{ url('monitoreo:registro_lombricultura_detalle', registro_id=registro.id) }}">Ver</a></td></tr>
+                    {% else %}<tr><td colspan="5" class="px-6 py-12 text-center text-stone-500">Todavía no existen registros.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}

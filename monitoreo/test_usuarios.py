@@ -22,7 +22,12 @@ class CreacionUsuariosOperativosTests(TestCase):
                 side_effect=[clave, clave],
             ),
         ):
-            call_command("crear_usuario_operativo", rol=rol, stdout=salida)
+            call_command(
+                "crear_usuario_operativo",
+                rol=rol,
+                comunidad="paipayales",
+                stdout=salida,
+            )
         return get_user_model().objects.get(email=email), salida.getvalue()
 
     def test_crea_superusuario_tecnico(self):
@@ -56,7 +61,7 @@ class CreacionUsuariosOperativosTests(TestCase):
         self.assertTrue(usuario.groups.filter(name=GRUPO_ADMINISTRADORES_FUNCIONALES).exists())
         self.assertTrue(usuario.has_perm("cuentas.add_usuario"))
         self.assertTrue(usuario.has_perm("monitoreo.change_piscina"))
-        self.assertTrue(usuario.has_perm("monitoreo.change_especie"))
+        self.assertFalse(usuario.has_perm("monitoreo.change_especie"))
         self.assertTrue(usuario.has_perm("monitoreo.view_auditoriacambio"))
         self.assertFalse(usuario.has_perm("auth.change_group"))
         self.assertFalse(usuario.has_perm("monitoreo.delete_piscina"))

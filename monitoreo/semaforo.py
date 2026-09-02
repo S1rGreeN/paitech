@@ -1,7 +1,28 @@
 from decimal import Decimal
 
+from django.core.exceptions import ObjectDoesNotExist
+
 
 PRIORIDAD = {"VERDE": 0, "AMARILLO": 1, "ROJO": 2}
+
+# Conserva exactamente el comportamiento histórico de Vieja Azul cuando aún
+# no existe un perfil en la base de datos.
+PERFIL_RESPALDO = {
+    "version": "vieja-azul-legado-1.3",
+    "provisional": True,
+    "ph_critico_bajo": Decimal("6.00"),
+    "ph_ideal_bajo": Decimal("6.50"),
+    "ph_ideal_alto": Decimal("8.50"),
+    "ph_critico_alto": Decimal("9.00"),
+    "nitrito_amarillo_desde": Decimal("0.500"),
+    "nitrito_rojo_desde": Decimal("1.001"),
+    "nitrato_amarillo_desde": Decimal("50.000"),
+    "nitrato_rojo_desde": Decimal("100.001"),
+    "amoniaco_total_amarillo_desde": Decimal("0.500"),
+    "amoniaco_total_rojo_desde": Decimal("1.001"),
+    "nh3_amarillo_desde": Decimal("0.02001"),
+    "nh3_rojo_desde": Decimal("0.05001"),
+}
 
 
 def _lectura(parametro, valor, unidad, estado, diagnostico, recomendacion):
@@ -15,41 +36,91 @@ def _lectura(parametro, valor, unidad, estado, diagnostico, recomendacion):
     }
 
 
-def evaluar_agua(agua):
-    """Replica los umbrales de Android v1.3 sin inferir mortalidad."""
+def _perfil_para(agua, especie=None):
+    if especie is None:
+        try:
+            especie = agua.jornada.piscina.especie
+        except (AttributeError, ObjectDoesNotExist):
+            especie = None
+    if especie is None:
+        return PERFIL_RESPALDO, None
+    try:
+        perfil = especie.perfil_semaforo
+    except ObjectDoesNotExist:
+        return PERFIL_RESPALDO, especie
+    campos = {
+        nombre: getattr(perfil, nombre)
+        for nombre in PERFIL_RESPALDO
+        if nombre not in {"version", "provisional"}
+    }
+    campos.update({"version": perfil.version, "provisional": perfil.provisional})
+    return campos, especie
+
+
+def evaluar_agua(agua, especie=None):
+    """Evalúa agua con el perfil versionado de la especie de la piscina."""
+    perfil, especie = _perfil_para(agua, especie)
     ph = Decimal(agua.ph)
     nitrito = Decimal(agua.nitrito)
     amoniaco_total = Decimal(agua.amoniaco_total)
     nitrato = Decimal(agua.nitrato)
     lecturas = []
 
-    if ph < Decimal("6.0"):
-        lecturas.append(_lectura("pH", ph, "", "ROJO", "Agua demasiado ácida.", "Encalar, hacer un recambio parcial y avisar al técnico."))
-    elif ph > Decimal("9.0"):
-        lecturas.append(_lectura("pH", ph, "", "ROJO", "Agua demasiado alcalina.", "Recambiar agua y suspender la alimentación del día."))
-    elif ph < Decimal("6.5") or ph > Decimal("8.5"):
-        lecturas.append(_lectura("pH", ph, "", "AMARILLO", "pH fuera del rango ideal.", "Revisar el manejo y volver a medir en 24 horas."))
+    if ph < perfil["ph_critico_bajo"]:
+        estado = "ROJO"
+        diagnostico = "Agua demasiado ácida para el perfil de la especie."
+        recomendacion = "Aplicar el protocolo técnico, verificar el valor y considerar un recambio parcial."
+    elif ph > perfil["ph_critico_alto"]:
+        estado = "ROJO"
+        diagnostico = "Agua demasiado alcalina para el perfil de la especie."
+        recomendacion = "Aplicar el protocolo técnico, verificar el valor y considerar un recambio parcial."
+    elif ph < perfil["ph_ideal_bajo"] or ph > perfil["ph_ideal_alto"]:
+        estado = "AMARILLO"
+        diagnostico = "pH fuera del rango ideal de la especie."
+        recomendacion = "Revisar el manejo y volver a medir en 24 horas."
     else:
-        lecturas.append(_lectura("pH", ph, "", "VERDE", "pH dentro del rango provisional.", "Mantener el manejo actual."))
+        estado = "VERDE"
+        diagnostico = "pH dentro del rango provisional de la especie."
+        recomendacion = "Mantener el manejo actual."
+    lecturas.append(_lectura("pH", ph, "", estado, diagnostico, recomendacion))
 
     parametros = (
-        ("Nitrito", nitrito, Decimal("0.5"), Decimal("1.0")),
-        ("Amoníaco total", amoniaco_total, Decimal("0.5"), Decimal("1.0")),
-        ("Nitrato", nitrato, Decimal("50"), Decimal("100")),
+        ("Nitrito", nitrito, perfil["nitrito_amarillo_desde"], perfil["nitrito_rojo_desde"]),
+        (
+            "Amoníaco total",
+            amoniaco_total,
+            perfil["amoniaco_total_amarillo_desde"],
+            perfil["amoniaco_total_rojo_desde"],
+        ),
+        ("Nitrato", nitrato, perfil["nitrato_amarillo_desde"], perfil["nitrato_rojo_desde"]),
     )
     for nombre, valor, precaucion, critico in parametros:
-        if valor > critico:
-            estado, diagnostico, recomendacion = "ROJO", f"{nombre} en nivel crítico.", "Aplicar el protocolo técnico y repetir la medición."
+        if valor >= critico:
+            estado, diagnostico, recomendacion = (
+                "ROJO",
+                f"{nombre} en nivel crítico para la especie.",
+                "Aplicar el protocolo técnico y repetir la medición.",
+            )
         elif valor >= precaucion:
-            estado, diagnostico, recomendacion = "AMARILLO", f"{nombre} por encima del rango deseable.", "Revisar el manejo y repetir la medición."
+            estado, diagnostico, recomendacion = (
+                "AMARILLO",
+                f"{nombre} por encima del rango deseable para la especie.",
+                "Revisar el manejo y repetir la medición.",
+            )
         else:
-            estado, diagnostico, recomendacion = "VERDE", f"{nombre} en nivel seguro provisional.", "Mantener el manejo actual."
+            estado, diagnostico, recomendacion = (
+                "VERDE",
+                f"{nombre} en nivel seguro provisional para la especie.",
+                "Mantener el manejo actual.",
+            )
         lecturas.append(_lectura(nombre, valor, "ppm", estado, diagnostico, recomendacion))
 
-    nh3 = float(amoniaco_total) / (1 + 10 ** (9.25 - float(ph)))
-    if nh3 > 0.05:
+    # Estimación provisional hasta que el sensor aporte temperatura. Se
+    # conserva pKa=9.25 (~25 °C), igual que en la app original.
+    nh3 = Decimal(str(float(amoniaco_total) / (1 + 10 ** (9.25 - float(ph)))))
+    if nh3 >= perfil["nh3_rojo_desde"]:
         estado_nh3 = "ROJO"
-    elif nh3 > 0.02:
+    elif nh3 >= perfil["nh3_amarillo_desde"]:
         estado_nh3 = "AMARILLO"
     else:
         estado_nh3 = "VERDE"
@@ -60,14 +131,15 @@ def evaluar_agua(agua):
             "ppm",
             estado_nh3,
             "Estimación provisional de la fracción tóxica según pH.",
-            "Estimación provisional con pKa 9.25 (~25 °C); confirmar con temperatura y protocolo técnico.",
+            "Confirmar con temperatura y protocolo técnico cuando los sensores estén activos.",
         )
     )
 
-    if amoniaco_total >= Decimal("0.5") and nitrito >= Decimal("0.5"):
-        lecturas.append(_lectura("Ciclo del nitrógeno", nitrito, "ppm", "ROJO", "Amoníaco total y nitrito altos simultáneamente.", "Suspender alimentación, recambiar agua y avisar al técnico."))
-    elif amoniaco_total >= Decimal("0.5") and nitrito < Decimal("0.5"):
-        lecturas.append(_lectura("Ciclo del nitrógeno", amoniaco_total, "ppm", "AMARILLO", "Amoníaco total alto con nitrito bajo.", "Alimentar poco y medir con mayor frecuencia."))
-
     estado = max(lecturas, key=lambda item: PRIORIDAD[item["estado"]])["estado"]
-    return {"estado": estado, "lecturas": lecturas, "umbrales_provisionales": True}
+    return {
+        "estado": estado,
+        "lecturas": lecturas,
+        "umbrales_provisionales": perfil["provisional"],
+        "perfil_version": perfil["version"],
+        "especie": especie.nombre_comun if especie else None,
+    }

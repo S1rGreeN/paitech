@@ -47,14 +47,8 @@ class BasePaiPayTest(TestCase):
         self.user = User.objects.create_user(email="ana@example.com", password="ClaveSegura123!", first_name="Ana")
         self.otro = User.objects.create_user(email="luis@example.com", password="ClaveSegura123!", first_name="Luis")
         self.comunidad = self.user.perfil_acuicultor.comunidad
-        self.especie = Especie.objects.create(nombre_comun="Vieja Azul", nombre_cientifico="Andinoacara rivulatus")
-        self.piscina = Piscina.objects.create(
-            comunidad=self.comunidad,
-            especie=self.especie,
-            nombre="Piscina 1",
-            codigo="P-01",
-            tipo=Piscina.Tipo.PECES,
-        )
+        self.especie = Especie.objects.get(nombre_comun="Vieja Azul")
+        self.piscina = Piscina.objects.get(comunidad=self.comunidad, codigo="P-01")
         self.ciclo = CicloProductivo.objects.create(
             piscina=self.piscina,
             especie=self.especie,
@@ -135,47 +129,38 @@ class AutenticacionYWebTests(BasePaiPayTest):
         respuesta = self.client.get(reverse("monitoreo:piscina_detalle", args=[self.piscina.id]))
         self.assertEqual(respuesta.status_code, 200)
 
-    def test_dashboard_muestra_lombricultura_sin_crear_lom_01(self):
+    def test_dashboard_muestra_la_cama_de_lombricultura_separada_de_piscinas(self):
         self.client.force_login(self.user)
 
         respuesta = self.client.get(reverse("monitoreo:dashboard"))
 
         self.assertEqual(respuesta.status_code, 200)
-        self.assertContains(respuesta, ">Lombricultura</h3>", html=False, count=1)
-        self.assertContains(respuesta, "Próximamente")
-        self.assertContains(respuesta, "No crea una piscina ni almacena datos")
-        self.assertFalse(Piscina.objects.filter(tipo=Piscina.Tipo.LOMBRICES).exists())
-        self.assertContains(respuesta, "Solo piscinas reales habilitadas")
+        self.assertContains(respuesta, ">Lombricultura</div>", html=False, count=1)
+        self.assertContains(respuesta, "Cama 1 Paipayales")
+        self.assertNotContains(respuesta, "Próximamente")
+        self.assertEqual(Piscina.objects.filter(comunidad=self.comunidad).count(), 1)
 
-    def test_dashboard_no_expone_una_fila_antigua_de_lombricultura(self):
-        Piscina.objects.create(
-            comunidad=self.comunidad,
-            nombre="Lecho demo que no debe mostrarse",
-            codigo="LOM-01",
-            tipo=Piscina.Tipo.LOMBRICES,
-        )
+    def test_dashboard_no_expone_datos_de_otra_comunidad(self):
+        otra_comunidad = Comunidad.objects.get(codigo="colegio-galo-plaza-lasso")
         self.client.force_login(self.user)
 
         respuesta = self.client.get(reverse("monitoreo:dashboard"))
 
         self.assertEqual(respuesta.status_code, 200)
-        self.assertNotContains(respuesta, "Lecho demo que no debe mostrarse")
-        self.assertNotContains(respuesta, "LOM-01")
-        self.assertContains(respuesta, ">Lombricultura</h3>", html=False, count=1)
+        self.assertNotContains(respuesta, otra_comunidad.nombre)
+        self.assertNotContains(respuesta, "Piscina 1 Colegio Galo Plaza Lasso")
+        self.assertContains(respuesta, ">Lombricultura</div>", html=False, count=1)
 
-    def test_catalogo_api_no_entrega_lombricultura_a_android(self):
-        Piscina.objects.create(
-            comunidad=self.comunidad,
-            nombre="Lecho demo que no debe sincronizarse",
-            codigo="LOM-01",
-            tipo=Piscina.Tipo.LOMBRICES,
-        )
+    def test_catalogos_api_separan_piscinas_y_camas(self):
         self.autenticar()
 
-        respuesta = self.api.get(reverse("monitoreo:api_piscinas"))
+        piscinas = self.api.get(reverse("monitoreo:api_piscinas"))
+        camas = self.api.get(reverse("monitoreo:api_camas"))
 
-        self.assertEqual(respuesta.status_code, 200)
-        self.assertEqual([item["codigo"] for item in respuesta.data], ["P-01"])
+        self.assertEqual(piscinas.status_code, 200)
+        self.assertEqual(camas.status_code, 200)
+        self.assertEqual([item["codigo"] for item in piscinas.data], ["P-01"])
+        self.assertEqual([item["codigo"] for item in camas.data], ["C-01"])
 
     def test_detalle_piscina_muestra_un_solo_acceso_a_nuevo_registro(self):
         self.client.force_login(self.user)
@@ -469,7 +454,7 @@ class SemaforoYPoblacionTests(BasePaiPayTest):
         self.assertEqual(MovimientoPoblacion.objects.count(), 1)
 
     def test_especie_de_piscina_no_puede_cambiar(self):
-        otra = Especie.objects.create(nombre_comun="Tilapia")
+        otra = Especie.objects.get(nombre_comun="Tilapia")
         self.piscina.especie = otra
         with self.assertRaises(ValidationError):
             self.piscina.full_clean()

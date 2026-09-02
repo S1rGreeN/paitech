@@ -4,7 +4,13 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.forms import BaseFormSet, formset_factory
 from django.utils import timezone
 
-from .models import CicloProductivo, JornadaRegistro, Piscina
+from .models import (
+    CicloLombricultura,
+    CicloProductivo,
+    JornadaRegistro,
+    Piscina,
+    RegistroLombricultura,
+)
 
 INPUT_CLASS = (
     "mt-1 block w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 "
@@ -263,6 +269,97 @@ class CicloCierreForm(forms.Form):
         ):
             self.add_error("poblacion_final", "La mortalidad total requiere población final cero.")
         return datos
+
+
+class CicloLombriculturaAperturaForm(forms.Form):
+    iniciado_en = forms.DateTimeField(
+        label="Fecha y hora de inicio",
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M",
+            attrs={"class": INPUT_CLASS, "type": "datetime-local"},
+        ),
+    )
+    conteo_inicial = forms.IntegerField(
+        min_value=0,
+        label="Conteo inicial de lombrices",
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": "0", "step": "1"}),
+    )
+    observaciones_apertura = forms.CharField(
+        required=False,
+        max_length=5000,
+        label="Observaciones",
+        widget=forms.Textarea(attrs={"class": TEXTAREA_CLASS}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound:
+            self.initial["iniciado_en"] = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
+
+
+class CicloLombriculturaCierreForm(forms.Form):
+    cerrado_en = forms.DateTimeField(
+        label="Fecha y hora de cierre",
+        input_formats=["%Y-%m-%dT%H:%M"],
+        widget=forms.DateTimeInput(
+            format="%Y-%m-%dT%H:%M",
+            attrs={"class": INPUT_CLASS, "type": "datetime-local"},
+        ),
+    )
+    conteo_final = forms.IntegerField(
+        min_value=0,
+        label="Conteo final de lombrices",
+        widget=forms.NumberInput(attrs={"class": INPUT_CLASS, "min": "0", "step": "1"}),
+    )
+    observaciones_cierre = forms.CharField(
+        required=False,
+        max_length=5000,
+        label="Observaciones",
+        widget=forms.Textarea(attrs={"class": TEXTAREA_CLASS}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound:
+            self.initial["cerrado_en"] = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
+
+
+class RegistroLombriculturaForm(forms.ModelForm):
+    class Meta:
+        model = RegistroLombricultura
+        fields = ["capturada_en", "ph_suelo", "conteo_lombrices", "observaciones"]
+        widgets = {
+            "capturada_en": forms.DateTimeInput(
+                format="%Y-%m-%dT%H:%M",
+                attrs={"class": INPUT_CLASS, "type": "datetime-local"},
+            ),
+            "ph_suelo": forms.NumberInput(
+                attrs={
+                    "class": INPUT_CLASS,
+                    "min": "0",
+                    "max": "14",
+                    "step": "0.01",
+                    "inputmode": "decimal",
+                }
+            ),
+            "conteo_lombrices": forms.NumberInput(
+                attrs={"class": INPUT_CLASS, "min": "0", "step": "1", "inputmode": "numeric"}
+            ),
+            "observaciones": forms.Textarea(attrs={"class": TEXTAREA_CLASS}),
+        }
+        labels = {
+            "capturada_en": "Fecha y hora del registro",
+            "ph_suelo": "pH del suelo",
+            "conteo_lombrices": "Conteo observado de lombrices",
+            "observaciones": "Observaciones",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["capturada_en"].input_formats = ["%Y-%m-%dT%H:%M"]
+        if not self.is_bound and not self.instance.pk:
+            self.initial["capturada_en"] = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
 
 
 class ObservacionPezForm(forms.Form):

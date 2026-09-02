@@ -82,8 +82,17 @@ class UsuarioAdmin(UserAdmin):
         consulta = super().get_queryset(request)
         if request.user.is_superuser:
             return consulta
-        # Un administrador funcional solo administra cuentas ordinarias.
-        return consulta.filter(is_staff=False, is_superuser=False)
+        try:
+            comunidad = request.user.perfil_acuicultor.comunidad
+        except Exception:
+            return consulta.none()
+        # Un administrador funcional solo administra cuentas ordinarias de su
+        # propia comunidad; el filtrado también provoca 404 en URL directas.
+        return consulta.filter(
+            is_staff=False,
+            is_superuser=False,
+            perfil_acuicultor__comunidad=comunidad,
+        )
 
     def get_fieldsets(self, request, obj=None):
         if request.user.is_superuser:
@@ -98,6 +107,21 @@ class UsuarioAdmin(UserAdmin):
             obj.is_staff = False
             obj.is_superuser = False
         super().save_model(request, obj, form, change)
+        if not request.user.is_superuser:
+            comunidad = request.user.perfil_acuicultor.comunidad
+            perfil = obj.perfil_acuicultor
+            perfil.comunidad = comunidad
+            perfil.rol = perfil.Rol.ACUICULTOR
+            base = obj.get_full_name().strip() or obj.email.split("@", 1)[0]
+            candidato = base
+            contador = 1
+            while type(perfil).objects.filter(
+                comunidad=comunidad, nickname=candidato
+            ).exclude(pk=perfil.pk).exists():
+                contador += 1
+                candidato = f"{base}-{contador}"
+            perfil.nickname = candidato
+            perfil.save(update_fields=["comunidad", "rol", "nickname"])
 
     def user_change_password(self, request, object_id, form_url=""):
         respuesta = super().user_change_password(request, object_id, form_url)

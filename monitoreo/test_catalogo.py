@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from monitoreo.models import Comunidad, Especie, JornadaRegistro, Piscina
+from monitoreo.models import CamaLombrices, Comunidad, Especie, JornadaRegistro, Piscina
 
 
 class ProteccionSeedDemoTests(SimpleTestCase):
@@ -45,15 +45,18 @@ class InicializacionCatalogoTests(TestCase):
         self.assertEqual(piscina.especie, especie)
         self.assertIsNone(piscina.area_m2)
         self.assertEqual(piscina.descripcion, "")
-        self.assertFalse(Piscina.objects.filter(codigo="LOM-01").exists())
+        cama = CamaLombrices.objects.get(comunidad=comunidad, codigo="C-01")
+        self.assertEqual(cama.nombre, "Cama 1 Paipayales")
+        self.assertFalse(Piscina.objects.filter(codigo="C-01").exists())
         self.assertEqual(get_user_model().objects.count(), 0)
         self.assertEqual(JornadaRegistro.objects.count(), 0)
-        self.assertIn("No se crearon usuarios, jornadas ni LOM-01", salida)
+        self.assertIn("No se crearon usuarios ni registros operativos", salida)
 
     def test_es_idempotente(self):
         self.ejecutar()
         self.ejecutar()
 
-        self.assertEqual(Comunidad.objects.count(), 1)
-        self.assertEqual(Especie.objects.count(), 1)
-        self.assertEqual(Piscina.objects.count(), 1)
+        self.assertEqual(Comunidad.objects.count(), 2)
+        self.assertEqual(Especie.objects.count(), 2)
+        self.assertEqual(Piscina.objects.count(), 2)
+        self.assertEqual(CamaLombrices.objects.count(), 1)

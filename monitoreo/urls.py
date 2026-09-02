@@ -3,9 +3,13 @@ from django.urls import path
 from . import views
 from .api import (
     CambioClaveApiView,
+    CamasLombricesApiView,
     CicloCerrarApiView,
+    CicloLombriculturaCerrarApiView,
+    CicloLombriculturaDetalleApiView,
     CicloDetalleApiView,
     CiclosApiView,
+    CiclosLombriculturaApiView,
     EspeciesApiView,
     HealthApiView,
     JornadaAnularApiView,
@@ -21,6 +25,9 @@ from .api import (
     PiscinasApiView,
     PrediccionCicloApiView,
     SemaforosApiView,
+    RegistroLombriculturaAnularApiView,
+    RegistroLombriculturaDetalleApiView,
+    RegistrosLombriculturaApiView,
 )
 
 app_name = "monitoreo"
@@ -33,10 +40,17 @@ urlpatterns = [
     path("api/v1/auth/me/", MeApiView.as_view(), name="api_me"),
     path("api/v1/catalogos/especies/", EspeciesApiView.as_view(), name="api_especies"),
     path("api/v1/catalogos/piscinas/", PiscinasApiView.as_view(), name="api_piscinas"),
+    path("api/v1/catalogos/camas/", CamasLombricesApiView.as_view(), name="api_camas"),
     path("api/v1/ciclos/", CiclosApiView.as_view(), name="api_ciclos"),
     path("api/v1/ciclos/prediccion/", PrediccionCicloApiView.as_view(), name="api_ciclo_prediccion"),
     path("api/v1/ciclos/<uuid:ciclo_id>/", CicloDetalleApiView.as_view(), name="api_ciclo_detalle"),
     path("api/v1/ciclos/<uuid:ciclo_id>/cerrar/", CicloCerrarApiView.as_view(), name="api_ciclo_cerrar"),
+    path("api/v1/lombricultura/ciclos/", CiclosLombriculturaApiView.as_view(), name="api_ciclos_lombricultura"),
+    path("api/v1/lombricultura/ciclos/<uuid:ciclo_id>/", CicloLombriculturaDetalleApiView.as_view(), name="api_ciclo_lombricultura_detalle"),
+    path("api/v1/lombricultura/ciclos/<uuid:ciclo_id>/cerrar/", CicloLombriculturaCerrarApiView.as_view(), name="api_ciclo_lombricultura_cerrar"),
+    path("api/v1/lombricultura/registros/", RegistrosLombriculturaApiView.as_view(), name="api_registros_lombricultura"),
+    path("api/v1/lombricultura/registros/<uuid:registro_id>/", RegistroLombriculturaDetalleApiView.as_view(), name="api_registro_lombricultura_detalle"),
+    path("api/v1/lombricultura/registros/<uuid:registro_id>/anular/", RegistroLombriculturaAnularApiView.as_view(), name="api_registro_lombricultura_anular"),
     path("api/v1/jornadas/", JornadasApiView.as_view(), name="api_jornadas"),
     path("api/v1/jornadas/<uuid:jornada_id>/", JornadaDetalleApiView.as_view(), name="api_jornada_detalle"),
     path("api/v1/jornadas/<uuid:jornada_id>/anular/", JornadaAnularApiView.as_view(), name="api_jornada_anular"),
@@ -54,4 +68,9 @@ urlpatterns = [
     path("ciclos/<uuid:ciclo_id>/cerrar/", views.ciclo_cerrar, name="ciclo_cerrar"),
     path("piscinas/<uuid:piscina_id>/registros/nuevo/", views.registro_nuevo, name="registro_nuevo"),
     path("registros/<uuid:registro_id>/", views.registro_detalle, name="registro_detalle"),
+    path("camas/<uuid:cama_id>/", views.cama_detalle, name="cama_detalle"),
+    path("camas/<uuid:cama_id>/ciclos/nuevo/", views.ciclo_lombricultura_abrir, name="ciclo_lombricultura_abrir"),
+    path("lombricultura/ciclos/<uuid:ciclo_id>/cerrar/", views.ciclo_lombricultura_cerrar, name="ciclo_lombricultura_cerrar"),
+    path("camas/<uuid:cama_id>/registros/nuevo/", views.registro_lombricultura_nuevo, name="registro_lombricultura_nuevo"),
+    path("lombricultura/registros/<uuid:registro_id>/", views.registro_lombricultura_detalle, name="registro_lombricultura_detalle"),
 ]
