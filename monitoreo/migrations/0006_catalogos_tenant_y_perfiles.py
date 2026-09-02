@@ -147,7 +147,7 @@ def preparar_datos(apps, schema_editor):
     Perfil.objects.update_or_create(
         especie=tilapia,
         defaults={
-            "version": "tilapia-nilo-provisional-2026.1",
+            "version": "tilapia-nilo-prov-2026.1",
             "provisional": True,
             "supuesto_biologico": (
                 "El catálogo aún no identifica la especie científica. El perfil usa "

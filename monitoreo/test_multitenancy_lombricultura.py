@@ -18,6 +18,7 @@ from .models import (
     Comunidad,
     Especie,
     MovimientoPoblacion,
+    PerfilSemaforoEspecie,
     Piscina,
     RegistroLombricultura,
 )
@@ -317,6 +318,11 @@ class PerfilesSemaforoTests(BaseComunidadesTest):
         resultado = evaluar_agua(agua, especie=tilapia)
 
         self.assertEqual(resultado["especie"], "Tilapia")
-        self.assertEqual(resultado["perfil_version"], "tilapia-nilo-provisional-2026.1")
+        self.assertEqual(resultado["perfil_version"], "tilapia-nilo-prov-2026.1")
         self.assertTrue(resultado["umbrales_provisionales"])
         self.assertEqual(resultado["estado"], "AMARILLO")
+
+        limite_version = PerfilSemaforoEspecie._meta.get_field("version").max_length
+        for version in PerfilSemaforoEspecie.objects.values_list("version", flat=True):
+            with self.subTest(version=version):
+                self.assertLessEqual(len(version), limite_version)
