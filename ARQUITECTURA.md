@@ -40,9 +40,12 @@ erDiagram
 
 ## Límites de lectura
 
-- Web y API: todos los miembros autenticados ven únicamente piscinas, camas,
-  usuarios y registros de su comunidad. Una URL directa hacia otro tenant da
-  `404`.
+- Web ordinaria y API móvil: cada cuenta ve únicamente piscinas, camas, usuarios
+  y registros de su comunidad. Una URL directa hacia otro tenant da `404`.
+- Web técnica: el superusuario dispone de `Todas las comunidades` o de un filtro
+  por UUID público. Puede abrir instalaciones y registros transversalmente, pero
+  el alcance global y una comunidad distinta de la de su perfil son de solo
+  lectura; los registros operativos se firman con una cuenta del tenant real.
 - Django Admin: el administrador funcional sigue limitado a su comunidad; solo
   el superusuario técnico puede consultar transversalmente.
 - Android: cachea el historial comunitario para consulta offline; solo habilita

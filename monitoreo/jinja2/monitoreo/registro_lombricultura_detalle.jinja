@@ -5,6 +5,7 @@
     <a href="{{ url('monitoreo:cama_detalle', cama_id=registro.cama_id) }}" class="text-sm font-bold text-stone-500">← Volver a la cama</a>
     <article class="mt-5 rounded-[2rem] border border-stone-200 bg-white p-7 brand-shadow sm:p-9">
         <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-black uppercase tracking-wider text-amber-800">Ciclo {{ registro.ciclo.numero }}</span>
+        {% if user.is_superuser %}<span class="ml-2 rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-600">{{ registro.cama.comunidad.nombre }}</span>{% endif %}
         <h1 class="mt-4 text-3xl font-black text-brand-brown">Registro de {{ registro.cama.nombre }}</h1>
         <p class="mt-2 text-stone-500">{{ registro.capturada_en.strftime('%d/%m/%Y %H:%M') }} · {{ registro.autor.nickname }}</p>
         <div class="mt-7 grid gap-4 sm:grid-cols-2">

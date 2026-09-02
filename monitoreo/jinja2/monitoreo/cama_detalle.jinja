@@ -8,14 +8,19 @@
     <div class="mt-5 overflow-hidden rounded-[2rem] border border-amber-200 bg-white brand-shadow">
         <div class="bg-gradient-to-br from-amber-100 to-lime-100 p-7 sm:p-9">
             <span class="rounded-full bg-white/70 px-3 py-1 text-xs font-black uppercase tracking-wider text-amber-800">Cama · {{ cama.codigo }}</span>
+            {% if user.is_superuser %}<span class="ml-2 rounded-full bg-white/70 px-3 py-1 text-xs font-bold text-stone-600">{{ cama.comunidad.nombre }}</span>{% endif %}
             <h1 class="mt-4 text-3xl font-black text-brand-brown">{{ cama.nombre }}</h1>
             <p class="mt-2 text-stone-600">{{ cama.descripcion or 'pH del suelo y conteo observado de lombrices.' }}</p>
             <div class="mt-6 flex flex-wrap gap-3">
+                {% if alcance_web.puede_escribir %}
                 {% if ciclo_activo %}
                 <a href="{{ url('monitoreo:registro_lombricultura_nuevo', cama_id=cama.id) }}" class="rounded-2xl bg-brand-brown px-5 py-3 font-bold text-white">Nuevo registro</a>
                 <a href="{{ url('monitoreo:ciclo_lombricultura_cerrar', ciclo_id=ciclo_activo.id) }}" class="rounded-2xl border border-brand-brown/30 bg-white/60 px-5 py-3 font-bold text-brand-brown">Cerrar ciclo</a>
                 {% else %}
                 <a href="{{ url('monitoreo:ciclo_lombricultura_abrir', cama_id=cama.id) }}" class="rounded-2xl bg-brand-brown px-5 py-3 font-bold text-white">Iniciar ciclo</a>
+                {% endif %}
+                {% else %}
+                <span class="rounded-2xl border border-brand-brown/20 bg-white/70 px-5 py-3 font-bold text-brand-brown">Consulta de solo lectura</span>
                 {% endif %}
             </div>
         </div>

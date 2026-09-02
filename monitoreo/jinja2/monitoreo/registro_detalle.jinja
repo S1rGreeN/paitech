@@ -17,14 +17,15 @@
                     <div class="flex flex-wrap items-center gap-2">
                         <span class="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em]">Registro #{{ registro.id }}</span>
                         <span class="rounded-full bg-brand-green px-3 py-1 text-xs font-black text-brand-brown">{{ registro.piscina.codigo }}</span>
+                        {% if user.is_superuser %}<span class="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-bold">{{ registro.piscina.comunidad.nombre }}</span>{% endif %}
                     </div>
                     <h1 class="mt-4 text-3xl font-black tracking-tight sm:text-4xl">Medición de {{ registro.fecha.strftime('%d/%m/%Y') }}</h1>
                     <p class="mt-3 text-white/65">{{ registro.fecha.strftime('%H:%M') }} · Registrado por {{ registro.acuicultor.nickname if registro.acuicultor else 'usuario no disponible' }}</p>
                 </div>
-                <a href="{{ url('monitoreo:registro_nuevo', piscina_id=registro.piscina.id) }}" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-brand-brown transition hover:-translate-y-0.5 hover:bg-lime-50">
+                {% if alcance_web.puede_escribir %}<a href="{{ url('monitoreo:registro_nuevo', piscina_id=registro.piscina.id) }}" class="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-brand-brown transition hover:-translate-y-0.5 hover:bg-lime-50">
                     <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
                     Crear otro registro
-                </a>
+                </a>{% else %}<span class="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold">Solo lectura</span>{% endif %}
             </div>
         </div>
 

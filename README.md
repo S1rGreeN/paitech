@@ -7,6 +7,8 @@ acuicultura y lombricultura.
 
 - Usuarios administrados en Django e inicio de sesión por correo.
 - Varias comunidades aisladas; cada cuenta pertenece exactamente a una.
+- Panel web técnico con selector por UUID público y vista global de solo lectura
+  para el superusuario; Android continúa limitado a la comunidad de la cuenta.
 - Especies globales y piscinas de peces con una especie permanente.
 - Camas de lombrices separadas de las piscinas, con ciclos, pH del suelo y
   conteo real de lombrices.

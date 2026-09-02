@@ -98,9 +98,16 @@ https://docs.djangoproject.com/en/5.2/topics/security/#sql-injection-protection
 
 - Cada perfil pertenece exactamente a una `Comunidad`; la PK numérica permanece
   interna y los clientes reciben un UUID público no secuencial.
-- Web, API y Django Admin funcional parten de la comunidad autenticada y filtran
-  también claves foráneas. Conocer el UUID de una piscina, cama, ciclo o registro
-  ajeno no concede acceso y produce `404`.
+- La web ordinaria, la API móvil y Django Admin funcional parten de la comunidad
+  autenticada y filtran también claves foráneas. Conocer el UUID de una piscina,
+  cama, ciclo o registro ajeno no concede acceso y produce `404`.
+- Solo el superusuario técnico puede seleccionar en la web un alcance global o
+  una comunidad activa mediante su UUID público. Esos alcances transversales son
+  de solo lectura. El servidor vuelve a validar el alcance en cada vista de
+  escritura; ocultar botones no constituye el control de autorización.
+- Un parámetro `comunidad` enviado por una cuenta ordinaria se ignora y nunca
+  modifica el tenant de su sesión. La selección del técnico se conserva solo en
+  la sesión web y no altera su perfil ni el contrato de la API Android.
 - Especies y perfiles de semáforo son globales, pero un usuario ordinario solo
   ve especies utilizadas por las piscinas de su comunidad. Solo el superusuario
   técnico puede modificarlos o consultar datos transversalmente en Django Admin.

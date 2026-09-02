@@ -17,6 +17,7 @@ from .models import (
     CicloLombricultura,
     Comunidad,
     Especie,
+    JornadaRegistro,
     MovimientoPoblacion,
     PerfilSemaforoEspecie,
     Piscina,
@@ -143,6 +144,107 @@ class AislamientoComunidadesTests(BaseComunidadesTest):
         self.assertEqual(list(comunidades), [self.paipayales])
         self.assertEqual([item.nombre_comun for item in especies], ["Vieja Azul"])
         self.assertEqual(list(campo_origen.queryset), [self.piscina_paipayales])
+
+
+class AlcanceGlobalWebTests(BaseComunidadesTest):
+    def setUp(self):
+        super().setUp()
+        self.tecnico = get_user_model().objects.create_superuser(
+            email="tecnico.global@example.com",
+            password="ClaveSegura123!",
+        )
+        self.registro_galo = JornadaRegistro.objects.create(
+            piscina=self.piscina_galo,
+            autor=self.acuicultor_galo.perfil_acuicultor,
+            poblacion_estimada=75,
+            estado=JornadaRegistro.Estado.COMPLETA,
+        )
+
+    def test_superusuario_inicia_en_vista_global_y_abre_detalles(self):
+        self.client.force_login(self.tecnico)
+
+        panel = self.client.get(reverse("monitoreo:dashboard"))
+        detalle_piscina = self.client.get(
+            reverse("monitoreo:piscina_detalle", args=[self.piscina_galo.id])
+        )
+        detalle_registro = self.client.get(
+            reverse("monitoreo:registro_detalle", args=[self.registro_galo.id])
+        )
+
+        self.assertEqual(panel.status_code, 200)
+        self.assertContains(panel, "Piscina 1 Paipayales")
+        self.assertContains(panel, "Piscina 1 Colegio Galo Plaza Lasso")
+        self.assertContains(panel, "Vista global de solo lectura")
+        self.assertContains(
+            panel,
+            reverse("monitoreo:registro_detalle", args=[self.registro_galo.id]),
+        )
+        self.assertEqual(detalle_piscina.status_code, 200)
+        self.assertEqual(detalle_registro.status_code, 200)
+        self.assertContains(detalle_piscina, "Consulta de solo lectura")
+
+    def test_superusuario_filtra_por_uuid_publico_sin_mezclar_tenants(self):
+        self.client.force_login(self.tecnico)
+
+        panel = self.client.get(
+            reverse("monitoreo:dashboard"),
+            {"comunidad": str(self.galo.id_publico)},
+        )
+        detalle_galo = self.client.get(
+            reverse("monitoreo:piscina_detalle", args=[self.piscina_galo.id])
+        )
+        detalle_paipayales = self.client.get(
+            reverse("monitoreo:piscina_detalle", args=[self.piscina_paipayales.id])
+        )
+        escritura_galo = self.client.get(
+            reverse("monitoreo:ciclo_abrir", args=[self.piscina_galo.id])
+        )
+
+        self.assertEqual(panel.status_code, 200)
+        self.assertContains(panel, "Piscina 1 Colegio Galo Plaza Lasso")
+        self.assertNotContains(panel, "Piscina 1 Paipayales")
+        self.assertEqual(detalle_galo.status_code, 200)
+        self.assertEqual(detalle_paipayales.status_code, 404)
+        self.assertEqual(escritura_galo.status_code, 403)
+
+    def test_superusuario_conserva_escritura_en_su_comunidad_operativa(self):
+        self.client.force_login(self.tecnico)
+        self.client.get(
+            reverse("monitoreo:dashboard"),
+            {"comunidad": str(self.paipayales.id_publico)},
+        )
+
+        respuesta = self.client.get(
+            reverse("monitoreo:ciclo_abrir", args=[self.piscina_paipayales.id])
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_usuario_ordinario_no_puede_cambiar_alcance_por_query(self):
+        self.client.force_login(self.acuicultor)
+
+        panel = self.client.get(
+            reverse("monitoreo:dashboard"),
+            {"comunidad": str(self.galo.id_publico)},
+        )
+        detalle = self.client.get(
+            reverse("monitoreo:piscina_detalle", args=[self.piscina_galo.id])
+        )
+
+        self.assertContains(panel, "Piscina 1 Paipayales")
+        self.assertNotContains(panel, "Piscina 1 Colegio Galo Plaza Lasso")
+        self.assertEqual(detalle.status_code, 404)
+
+    def test_api_android_del_superusuario_permanece_en_su_comunidad(self):
+        self.api.force_authenticate(self.tecnico)
+
+        respuesta = self.api.get(reverse("monitoreo:api_piscinas"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(
+            [dato["id"] for dato in respuesta.data],
+            [str(self.piscina_paipayales.id)],
+        )
 
 
 class LombriculturaApiTests(BaseComunidadesTest):

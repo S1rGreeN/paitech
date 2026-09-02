@@ -32,6 +32,7 @@ from .models import (
     CamaLombrices,
     CicloLombricultura,
     CicloProductivo,
+    Comunidad,
     JornadaRegistro,
     MedicionAgua,
     Piscina,
@@ -47,7 +48,13 @@ from .services import (
     crear_ciclo_lombricultura,
     crear_jornada,
     crear_registro_lombricultura,
-    perfil_de,
+)
+from .web_scope import (
+    ALCANCE_TODAS,
+    SESSION_COMUNIDAD_WEB,
+    exigir_alcance_escritura,
+    filtrar_por_alcance,
+    resolver_alcance_web,
 )
 
 
@@ -60,6 +67,18 @@ def render_page(
 ) -> HttpResponse:
     context = context or {}
     context.update({"request": request, "user": request.user, "messages": list(get_messages(request)), "csrf_token": get_token(request)})
+    if request.user.is_authenticated:
+        alcance = resolver_alcance_web(request)
+        context.update(
+            {
+                "alcance_web": alcance,
+                "comunidades_web": (
+                    Comunidad.objects.filter(activa=True).order_by("nombre")
+                    if request.user.is_superuser
+                    else ()
+                ),
+            }
+        )
     return render(request, template_name, context, status=status)
 
 
@@ -86,6 +105,10 @@ def login_view(request):
         usuario = form.get_user()
         registrar_login_exitoso(usuario, ip, canal="web")
         login(request, usuario)
+        if usuario.is_superuser:
+            request.session[SESSION_COMUNIDAD_WEB] = ALCANCE_TODAS
+        else:
+            request.session.pop(SESSION_COMUNIDAD_WEB, None)
         if usuario.debe_cambiar_clave:
             return redirect("monitoreo:cambiar_clave_inicial")
         siguiente = request.GET.get("next")
@@ -126,16 +149,18 @@ def logout_view(request):
 @login_required
 @require_http_methods(["GET"])
 def dashboard(request):
-    perfil = perfil_de(request.user)
+    alcance = resolver_alcance_web(request, actualizar_desde_query=True)
+    piscinas_base = filtrar_por_alcance(
+        Piscina.objects.all(), alcance, lookup="comunidad"
+    )
     piscinas = list(
-        Piscina.objects.filter(
-            comunidad=perfil.comunidad,
+        piscinas_base.filter(
             activa=True,
             tipo=Piscina.Tipo.PECES,
         )
-        .select_related("especie")
+        .select_related("especie", "comunidad")
         .annotate(total_registros=Count("registros", filter=Q(registros__estado=JornadaRegistro.Estado.COMPLETA)))
-        .order_by("tipo", "nombre")
+        .order_by("comunidad__nombre", "tipo", "nombre")
     )
     tarjetas = []
     for piscina in piscinas:
@@ -147,16 +172,24 @@ def dashboard(request):
             "ciclo_activo": ciclo,
             "recordatorios": recordatorios_piscina(piscina),
         })
-    registros = JornadaRegistro.objects.filter(piscina__comunidad=perfil.comunidad, estado=JornadaRegistro.Estado.COMPLETA).select_related("piscina", "autor", "autor__user", "agua")
+    registros = filtrar_por_alcance(
+        JornadaRegistro.objects.all(), alcance, lookup="piscina__comunidad"
+    ).filter(estado=JornadaRegistro.Estado.COMPLETA).select_related(
+        "piscina", "piscina__comunidad", "autor", "autor__user", "agua"
+    )
+    camas_base = filtrar_por_alcance(
+        CamaLombrices.objects.all(), alcance, lookup="comunidad"
+    )
     camas = list(
-        CamaLombrices.objects.filter(comunidad=perfil.comunidad, activa=True)
+        camas_base.filter(activa=True)
+        .select_related("comunidad")
         .annotate(
             total_registros=Count(
                 "registros",
                 filter=Q(registros__estado=RegistroLombricultura.Estado.COMPLETO),
             )
         )
-        .order_by("nombre")
+        .order_by("comunidad__nombre", "nombre")
     )
     tarjetas_camas = [
         {
@@ -185,8 +218,13 @@ def dashboard(request):
 @login_required
 @require_http_methods(["GET"])
 def piscina_detalle(request, piscina_id):
-    perfil = perfil_de(request.user)
-    piscina = get_object_or_404(Piscina, pk=piscina_id, comunidad=perfil.comunidad, activa=True)
+    alcance = resolver_alcance_web(request)
+    piscinas = filtrar_por_alcance(
+        Piscina.objects.select_related("comunidad", "especie"),
+        alcance,
+        lookup="comunidad",
+    )
+    piscina = get_object_or_404(piscinas, pk=piscina_id, activa=True)
     registros = piscina.registros.filter(estado=JornadaRegistro.Estado.COMPLETA).select_related("autor", "autor__user", "agua").prefetch_related("muestra_biometrica__peces")[:30]
     promedio_ph = MedicionAgua.objects.filter(jornada__piscina=piscina, jornada__estado=JornadaRegistro.Estado.COMPLETA).aggregate(valor=Avg("ph"))["valor"]
     ciclo_activo = piscina.ciclos.filter(estado=CicloProductivo.Estado.ACTIVO).select_related("autor_apertura", "autor_apertura__user").first()
@@ -204,8 +242,10 @@ def piscina_detalle(request, piscina_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def registro_nuevo(request, piscina_id):
-    perfil = perfil_de(request.user)
-    piscina = get_object_or_404(Piscina, pk=piscina_id, comunidad=perfil.comunidad, activa=True)
+    alcance = exigir_alcance_escritura(request)
+    piscina = get_object_or_404(
+        Piscina, pk=piscina_id, comunidad=alcance.comunidad, activa=True
+    )
     if piscina.tipo != Piscina.Tipo.PECES:
         messages.info(request, "Lombricultura está planificada como Próximamente.")
         return redirect("monitoreo:piscina_detalle", piscina_id=piscina.id)
@@ -237,11 +277,11 @@ def registro_nuevo(request, piscina_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def ciclo_abrir(request, piscina_id):
-    perfil = perfil_de(request.user)
+    alcance = exigir_alcance_escritura(request)
     piscina = get_object_or_404(
         Piscina,
         pk=piscina_id,
-        comunidad=perfil.comunidad,
+        comunidad=alcance.comunidad,
         activa=True,
         tipo=Piscina.Tipo.PECES,
     )
@@ -276,11 +316,11 @@ def ciclo_abrir(request, piscina_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def ciclo_cerrar(request, ciclo_id):
-    perfil = perfil_de(request.user)
+    alcance = exigir_alcance_escritura(request)
     ciclo = get_object_or_404(
         CicloProductivo.objects.select_related("piscina", "especie"),
         pk=ciclo_id,
-        piscina__comunidad=perfil.comunidad,
+        piscina__comunidad=alcance.comunidad,
         estado=CicloProductivo.Estado.ACTIVO,
     )
     form = CicloCierreForm(request.POST or None, ciclo=ciclo)
@@ -307,9 +347,12 @@ def ciclo_cerrar(request, ciclo_id):
 @login_required
 @require_http_methods(["GET"])
 def registro_detalle(request, registro_id):
-    perfil = perfil_de(request.user)
+    alcance = resolver_alcance_web(request)
+    registros = filtrar_por_alcance(
+        JornadaRegistro.objects.all(), alcance, lookup="piscina__comunidad"
+    )
     registro = get_object_or_404(
-        JornadaRegistro.objects.filter(piscina__comunidad=perfil.comunidad).select_related("piscina", "piscina__especie", "autor", "autor__user", "agua").prefetch_related("muestra_biometrica__peces"),
+        registros.select_related("piscina", "piscina__comunidad", "piscina__especie", "autor", "autor__user", "agua").prefetch_related("muestra_biometrica__peces"),
         pk=registro_id,
     )
     resumen = registro.muestras_peces.aggregate(peso_promedio=Avg("peso_gramos"), talla_promedio=Avg("talla_centimetros"))
@@ -319,9 +362,14 @@ def registro_detalle(request, registro_id):
 @login_required
 @require_http_methods(["GET"])
 def cama_detalle(request, cama_id):
-    perfil = perfil_de(request.user)
+    alcance = resolver_alcance_web(request)
+    camas = filtrar_por_alcance(
+        CamaLombrices.objects.select_related("comunidad"),
+        alcance,
+        lookup="comunidad",
+    )
     cama = get_object_or_404(
-        CamaLombrices, pk=cama_id, comunidad=perfil.comunidad, activa=True
+        camas, pk=cama_id, activa=True
     )
     registros = (
         cama.registros.filter(estado=RegistroLombricultura.Estado.COMPLETO)
@@ -348,9 +396,9 @@ def cama_detalle(request, cama_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def ciclo_lombricultura_abrir(request, cama_id):
-    perfil = perfil_de(request.user)
+    alcance = exigir_alcance_escritura(request)
     cama = get_object_or_404(
-        CamaLombrices, pk=cama_id, comunidad=perfil.comunidad, activa=True
+        CamaLombrices, pk=cama_id, comunidad=alcance.comunidad, activa=True
     )
     activo = cama.ciclos.filter(estado=CicloLombricultura.Estado.ACTIVO).first()
     if activo:
@@ -380,11 +428,11 @@ def ciclo_lombricultura_abrir(request, cama_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def ciclo_lombricultura_cerrar(request, ciclo_id):
-    perfil = perfil_de(request.user)
+    alcance = exigir_alcance_escritura(request)
     ciclo = get_object_or_404(
         CicloLombricultura.objects.select_related("cama"),
         pk=ciclo_id,
-        cama__comunidad=perfil.comunidad,
+        cama__comunidad=alcance.comunidad,
         estado=CicloLombricultura.Estado.ACTIVO,
     )
     form = CicloLombriculturaCierreForm(request.POST or None)
@@ -411,9 +459,9 @@ def ciclo_lombricultura_cerrar(request, ciclo_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def registro_lombricultura_nuevo(request, cama_id):
-    perfil = perfil_de(request.user)
+    alcance = exigir_alcance_escritura(request)
     cama = get_object_or_404(
-        CamaLombrices, pk=cama_id, comunidad=perfil.comunidad, activa=True
+        CamaLombrices, pk=cama_id, comunidad=alcance.comunidad, activa=True
     )
     ciclo = cama.ciclos.filter(estado=CicloLombricultura.Estado.ACTIVO).first()
     if ciclo is None:
@@ -442,10 +490,12 @@ def registro_lombricultura_nuevo(request, cama_id):
 @login_required
 @require_http_methods(["GET"])
 def registro_lombricultura_detalle(request, registro_id):
-    perfil = perfil_de(request.user)
+    alcance = resolver_alcance_web(request)
+    registros = filtrar_por_alcance(
+        RegistroLombricultura.objects.all(), alcance, lookup="cama__comunidad"
+    )
     registro = get_object_or_404(
-        RegistroLombricultura.objects.filter(cama__comunidad=perfil.comunidad)
-        .select_related("cama", "ciclo", "autor", "autor__user"),
+        registros.select_related("cama", "cama__comunidad", "ciclo", "autor", "autor__user"),
         pk=registro_id,
     )
     return render_page(
