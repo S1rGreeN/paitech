@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import views
+from .export_views import cama_excel, piscina_excel
 from .api import (
     CambioClaveApiView,
     CamasLombricesApiView,
@@ -64,11 +65,13 @@ urlpatterns = [
     path("logout/", views.logout_view, name="logout"),
     path("", views.dashboard, name="dashboard"),
     path("piscinas/<uuid:piscina_id>/", views.piscina_detalle, name="piscina_detalle"),
+    path("piscinas/<uuid:piscina_id>/descargar.xlsx", piscina_excel, name="piscina_excel"),
     path("piscinas/<uuid:piscina_id>/ciclos/nuevo/", views.ciclo_abrir, name="ciclo_abrir"),
     path("ciclos/<uuid:ciclo_id>/cerrar/", views.ciclo_cerrar, name="ciclo_cerrar"),
     path("piscinas/<uuid:piscina_id>/registros/nuevo/", views.registro_nuevo, name="registro_nuevo"),
     path("registros/<uuid:registro_id>/", views.registro_detalle, name="registro_detalle"),
     path("camas/<uuid:cama_id>/", views.cama_detalle, name="cama_detalle"),
+    path("camas/<uuid:cama_id>/descargar.xlsx", cama_excel, name="cama_excel"),
     path("camas/<uuid:cama_id>/ciclos/nuevo/", views.ciclo_lombricultura_abrir, name="ciclo_lombricultura_abrir"),
     path("lombricultura/ciclos/<uuid:ciclo_id>/cerrar/", views.ciclo_lombricultura_cerrar, name="ciclo_lombricultura_cerrar"),
     path("camas/<uuid:cama_id>/registros/nuevo/", views.registro_lombricultura_nuevo, name="registro_lombricultura_nuevo"),

@@ -12,3 +12,4 @@ dj-database-url==3.1.2
 psycopg[binary]==3.3.4
 gunicorn==26.0.0
 whitenoise==6.12.0
+XlsxWriter==3.2.9

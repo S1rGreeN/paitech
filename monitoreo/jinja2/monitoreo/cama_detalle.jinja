@@ -12,6 +12,10 @@
             <h1 class="mt-4 text-3xl font-black text-brand-brown">{{ cama.nombre }}</h1>
             <p class="mt-2 text-stone-600">{{ cama.descripcion or 'pH del suelo y conteo observado de lombrices.' }}</p>
             <div class="mt-6 flex flex-wrap gap-3">
+                <a href="{{ url('monitoreo:cama_excel', cama_id=cama.id) }}" class="inline-flex items-center gap-2 rounded-2xl border border-brand-brown/30 bg-white/60 px-5 py-3 font-bold text-brand-brown">
+                    <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg>
+                    Descargar Excel
+                </a>
                 {% if alcance_web.puede_escribir %}
                 {% if ciclo_activo %}
                 <a href="{{ url('monitoreo:registro_lombricultura_nuevo', cama_id=cama.id) }}" class="rounded-2xl bg-brand-brown px-5 py-3 font-bold text-white">Nuevo registro</a>
