@@ -6,7 +6,11 @@ import dj_database_url
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+IS_VERCEL = os.getenv("VERCEL") == "1"
+# En Vercel solo se usan las variables del servicio. Localmente permite elegir
+# un archivo privado para comandos manuales sobre Neon, sin sustituir .env.
+if not IS_VERCEL:
+    load_dotenv(BASE_DIR / os.getenv("PAIPAY_ENV_FILE", ".env"))
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -20,7 +24,6 @@ def env_list(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
 
 
-IS_VERCEL = os.getenv("VERCEL") == "1"
 IS_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT"))
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-local-only-change-me")
 DEBUG = env_bool("DEBUG", not (IS_VERCEL or IS_RAILWAY))
@@ -30,14 +33,35 @@ if not DEBUG and SECRET_KEY == "django-insecure-local-only-change-me":
 
 ALLOWED_HOSTS = env_list(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1,.up.railway.app,.vercel.app",
+    "" if IS_VERCEL else "localhost,127.0.0.1",
 )
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "")
 
-if not DEBUG and "ALLOWED_HOSTS" not in os.environ:
+if not DEBUG and not IS_VERCEL and "ALLOWED_HOSTS" not in os.environ:
     raise ImproperlyConfigured(
         "Define ALLOWED_HOSTS explícitamente antes de desplegar."
     )
+
+if IS_VERCEL:
+    if DEBUG:
+        raise ImproperlyConfigured("Vercel requiere DEBUG=False, también en Preview.")
+    # Los dominios exactos del despliegue permiten probar previews sin aceptar
+    # todas las aplicaciones de vercel.app. Los dominios propios van en las
+    # variables ALLOWED_HOSTS y CSRF_TRUSTED_ORIGINS del proyecto.
+    for variable in ("VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL"):
+        host = os.getenv(variable, "").strip()
+        if host:
+            if host not in ALLOWED_HOSTS:
+                ALLOWED_HOSTS.append(host)
+            origin = f"https://{host}"
+            if origin not in CSRF_TRUSTED_ORIGINS:
+                CSRF_TRUSTED_ORIGINS.append(origin)
+
+if not DEBUG and (
+    not ALLOWED_HOSTS
+    or any("*" in host or host.startswith(".") for host in ALLOWED_HOSTS)
+):
+    raise ImproperlyConfigured("ALLOWED_HOSTS requiere dominios exactos, sin comodines.")
 
 INSTALLED_APPS = [
     "cuentas.apps.CuentasConfig",
@@ -107,6 +131,11 @@ if DATABASE_URL:
     }
     DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
     DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+    if (
+        (IS_VERCEL or IS_RAILWAY)
+        and DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql"
+    ):
+        raise ImproperlyConfigured("El despliegue requiere PostgreSQL persistente en DATABASE_URL.")
 else:
     DATABASES = {
         "default": {
@@ -145,7 +174,11 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        "BACKEND": (
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if IS_VERCEL
+            else "whitenoise.storage.CompressedStaticFilesStorage"
+        ),
     },
 }
 
@@ -175,8 +208,12 @@ REST_FRAMEWORK = {
 }
 
 # Solo debe activarse cuando la aplicación corre detrás de un proxy controlado
-# (Railway). En desarrollo se usa REMOTE_ADDR para impedir suplantar la IP.
-TRUST_X_FORWARDED_FOR = env_bool("TRUST_X_FORWARDED_FOR", False)
+# (Vercel o Railway). En desarrollo se usa REMOTE_ADDR para impedir suplantar la IP.
+TRUST_X_FORWARDED_FOR = env_bool("TRUST_X_FORWARDED_FOR", IS_VERCEL)
+
+# Vercel lo envía como Authorization: Bearer ... al ejecutar el cron diario.
+# Sin secreto, el endpoint de mantenimiento permanece bloqueado.
+CRON_SECRET = os.getenv("CRON_SECRET", "").strip()
 
 # La estructura de telemetría se entrega en 1.5-dev, pero no debe aceptar datos
 # ni credenciales hasta conocer y validar el hardware real.

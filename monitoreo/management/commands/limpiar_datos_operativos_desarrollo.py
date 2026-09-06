@@ -27,6 +27,10 @@ class Command(BaseCommand):
         parser.add_argument("--confirmar", default="")
 
     def handle(self, *args, **options):
+        # El nombre de la rama Git o una etiqueta local no debe habilitar este
+        # comando destructivo en el despliegue Production de Vercel.
+        if os.getenv("VERCEL_ENV", "").strip().lower() == "production":
+            raise CommandError("Operación rechazada: Vercel está en Production.")
         entorno = (
             os.getenv("RAILWAY_ENVIRONMENT_NAME")
             or os.getenv("PAIPAY_ENVIRONMENT")

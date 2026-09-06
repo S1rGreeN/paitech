@@ -1,0 +1,3 @@
+# Las dependencias siguen en requirements.txt, con versiones y hashes fijados.
+[tool.vercel]
+entrypoint = "paipaytech.wsgi:application"

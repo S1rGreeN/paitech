@@ -9,7 +9,7 @@ No sustituye una auditoría de seguridad externa antes de manejar datos reales.
 Android / navegador
         │ HTTPS + API autenticada
         ▼
-Django REST Framework en Railway
+Django REST Framework en Vercel
         │ conexión PostgreSQL con TLS
         ▼
 Neon
@@ -114,12 +114,12 @@ https://docs.djangoproject.com/en/5.2/topics/security/#sql-injection-protection
 - La comunidad nunca se acepta como un campo libre del payload operativo; Django
   la deriva del usuario y de la piscina/cama seleccionada.
 
-## Producción Railway / Neon
+## Producción Vercel / Neon
 
 Antes de exponer el servicio:
 
 - `DEBUG=False`;
-- `SECRET_KEY` aleatoria y sellada, nunca incluida en Git;
+- `SECRET_KEY` aleatoria y protegida como variable sensible, nunca incluida en Git;
 - `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS` exactos, sin `*`;
 - `DATABASE_URL` de un rol Neon exclusivo para la aplicación y con el menor
   privilegio práctico;
@@ -127,11 +127,13 @@ Antes de exponer el servicio:
 - cookies `Secure`, protección CSRF, `X-Frame-Options: DENY`, `nosniff` y
   política de referente activas;
 - ejecutar `python manage.py check --deploy` con las variables reales;
-- configurar `/api/v1/health/` como healthcheck de despliegue;
-- configurar `TRUST_X_FORWARDED_FOR=True` solamente en Railway, donde el proxy es
+- validar `/api/v1/health/` después del despliegue;
+- configurar `TRUST_X_FORWARDED_FOR=True` solamente detrás de Vercel/Railway, donde el proxy es
   controlado, para que el contador compartido use la IP del cliente;
-- programar `limpiar_eventos_seguridad` una vez al día;
-- no ejecutar `seed_demo` en Railway/Neon; el propio comando se bloquea con
+- configurar `CRON_SECRET` para el cron diario de mantenimiento; no reutilizar
+  `SECRET_KEY` ni entregar el secreto a Android;
+- aislar Preview en otra rama/base de Neon y ejecutar migraciones manualmente;
+- no ejecutar `seed_demo` en Vercel/Neon; el propio comando se bloquea con
   `DEBUG=False` o una base distinta de SQLite;
 - inicializar solo los catálogos confirmados mediante
   `inicializar_catalogo_paipayales` y crear usuarios con entrada interactiva;
@@ -143,14 +145,14 @@ Antes de exponer el servicio:
 - rotar inmediatamente cualquier secreto que aparezca en capturas, logs, Git o
   conversaciones.
 
-Railway permite sellar variables sensibles. Neon exige conexiones TLS. La guía
-paso a paso se realizará junto con el propietario cuando llegue el hito de
-despliegue; no se copiarán secretos en archivos versionados.
+Neon exige conexiones TLS. La guía [DESPLIEGUE_VERCEL.md](DESPLIEGUE_VERCEL.md)
+explica los pasos manuales del propietario. Los archivos privados de variables
+y bases SQLite se excluyen también de las subidas mediante Vercel CLI.
 
 ## Controles todavía pendientes antes de v1.6 final
 
 - ejecutar pruebas dinámicas contra el despliegue de desarrollo;
 - revisar dependencias y alertas de vulnerabilidades;
-- repetir dinámicamente expiración/revocación contra Railway y Neon;
+- repetir dinámicamente expiración/revocación contra Vercel y Neon;
 - hacer prueba de aceptación en un teléfono físico antes del uso de campo;
 - definir copias de seguridad, restauración y respuesta ante incidentes.

@@ -1,7 +1,8 @@
 # Dependencias directas de producción.
 #
 # Criterio (2026-08-13): solo versiones finales, compatibles con Python 3.12,
-# Django 5.2 LTS y el despliegue WSGI en Railway + PostgreSQL en Neon.
+# Django 5.2 LTS y WSGI + PostgreSQL en Neon. Vercel carga WSGI directamente;
+# Gunicorn se conserva para poder volver a Railway durante la transición.
 # requirements.txt se genera desde este archivo con hashes mediante pip-tools.
 Django==5.2.16
 djangorestframework==3.17.1

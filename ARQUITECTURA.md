@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-    A["Android Java + Room"] -->|"HTTPS / Token"| B["Django REST Framework · Railway"]
+    A["Android Java + Room"] -->|"HTTPS / Token"| B["Django REST Framework · Vercel"]
     W["Web Django"] --> B
     B --> N["PostgreSQL · Neon"]
 ```

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "django",
+  "installCommand": "uv pip install --require-hashes -r requirements.txt",
+  "buildCommand": "python manage.py check",
+  "functions": {
+    "paipaytech/wsgi.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{.env,.env.*,.venv/**,venv/**,**/*.sqlite3,**/*.sqlite3-*,docs/**,.github/**}"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/internal/cron/mantenimiento/",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}

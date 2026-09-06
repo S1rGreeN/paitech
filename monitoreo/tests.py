@@ -738,3 +738,15 @@ class CiclosV15Tests(BasePaiPayTest):
                     "--confirmar",
                     "BORRAR-DATOS-DESARROLLO",
                 )
+
+    @override_settings(DEBUG=True)
+    def test_limpieza_rechaza_vercel_production_aunque_se_etiquete_desarrollo(self):
+        with patch.dict(os.environ, {"VERCEL_ENV": "production", "PAIPAY_ENVIRONMENT": "development"}):
+            with self.assertRaisesMessage(CommandError, "Vercel está en Production"):
+                call_command(
+                    "limpiar_datos_operativos_desarrollo",
+                    "--ejecutar",
+                    "--confirmar",
+                    "BORRAR-DATOS-DESARROLLO",
+                )
+        self.assertTrue(CicloProductivo.objects.exists())

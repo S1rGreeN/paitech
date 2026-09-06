@@ -5,9 +5,9 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   test:
@@ -16,6 +16,8 @@ jobs:
       SECRET_KEY: ci-only-secret-key
       DEBUG: "True"
       ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      PYTHON_DOTENV_DISABLED: "1"
+      DATABASE_URL: ""
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v6.0.2
@@ -40,3 +42,14 @@ jobs:
 
       - name: Ejecutar pruebas
         run: python manage.py test
+
+      - name: Validar configuración y estáticos de Vercel sin conectar a Neon
+        env:
+          VERCEL: "1"
+          DEBUG: "False"
+          SECRET_KEY: ci-only-vercel-key-that-is-long-enough-for-django-checks-123456789
+          ALLOWED_HOSTS: paipay-ci.vercel.app
+          DATABASE_URL: postgresql://test:test@127.0.0.1:1/test?sslmode=require
+        run: |
+          python manage.py check
+          python manage.py collectstatic --noinput
